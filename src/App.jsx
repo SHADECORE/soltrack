@@ -2341,7 +2341,7 @@ function useWalletData(S, clientToken = "") {
     try {
       const userToken = localStorage.getItem("soltrack_user_token") ?? ""; const ct = clientTokenRef.current; const headers = { ...(userToken ? { "Authorization": `Bearer ${userToken}` } : {}), ...(ct ? { "X-Client-Token": ct } : {}) };
       const base = sanitizeWorkerUrl(workerUrl);
-      const res = await fetch(`${base}/sync`, { method: "POST", headers: { ...headers, "Content-Type": "application/json" }, body: JSON.stringify({ address, heliusKey: heliusKeyRef.current || undefined }) });
+      const res = await fetch(`${base}/sync`, { method: "POST", headers: { ...headers, "Content-Type": "application/json" }, body: JSON.stringify({ address }) });
       if (res.ok) {
         const result = await res.json();
         setSyncStates(p => ({
@@ -4433,23 +4433,7 @@ function SettingsPanel({ S, setSetting, setS }) {
               </span>
             </label>
           </div>
-          <div style={{ marginBottom: 12 }}>
-            {fieldLabel("APP SECRET")}
-            <div style={{ display: "flex", gap: 6 }}>
-              <input className="sinp" placeholder="your-app-secret"
-                type="password"
-                value={S.appSecret ?? ""} onChange={e => setSetting("appSecret", e.target.value)}
-                style={{ fontFamily: "'DM Mono',monospace" }} />
-              {S.appSecret && (
-                <button onClick={() => setSetting("appSecret", "")} className="sb"
-                  style={{ padding: "8px 12px", borderColor: S.accentRed + "44", color: S.accentRed,
-                    "--border": S.borderColor, "--dim": S.textDim, "--mid": S.textMid, "--accent": S.accentGreen }}>CLR</button>
-              )}
-            </div>
-            <div style={{ color: S.textDim, fontSize: 9, fontFamily: "'DM Mono',monospace", marginTop: 4 }}>
-              Must match APP_SECRET in Cloudflare env vars
-            </div>
-          </div>
+
           <div style={{ marginBottom: 12 }}>
             {fieldLabel("TIMEZONE — affects how days are grouped")}
             <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
@@ -4934,14 +4918,27 @@ export default function App() {
             </button>
           </div>
         )}
-        {S.workerUrl && (
-          <div style={{ fontSize: 9, color: S.accentGreen, letterSpacing: ".1em", fontFamily: "'Orbitron',monospace", display: "flex", alignItems: "center", gap: 8 }}>
-            <div style={{ width: 5, height: 5, background: S.accentGreen, borderRadius: "50%" }} />
-            WORKER CONNECTED
-            <button onClick={() => { setSetting("workerUrl", ""); setAKI(""); }}
-              style={{ background: "none", border: "none", color: S.textDim, cursor: "pointer", fontSize: 9, marginLeft: 2 }}>✕</button>
-          </div>
-        )}
+        {S.workerUrl && (() => {
+          const hasToken = !!localStorage.getItem("soltrack_user_token");
+          return (
+            <div style={{ fontSize: 9, letterSpacing: ".1em", fontFamily: "'Orbitron',monospace", display: "flex", alignItems: "center", gap: 8 }}>
+              <div style={{ width: 5, height: 5, background: S.accentGreen, borderRadius: "50%" }} />
+              <span style={{ color: S.accentGreen }}>{hasToken ? "SIGNED IN" : "CONNECTED"}</span>
+              <button
+                onClick={() => {
+                  localStorage.removeItem("soltrack_user_token");
+                  window.location.reload();
+                }}
+                style={{ background: "none", border: `1px solid ${S.borderColor}`, color: S.textDim,
+                  cursor: "pointer", fontSize: 8, padding: "2px 7px", fontFamily: "'DM Mono',monospace",
+                  letterSpacing: ".06em" }}
+                onMouseEnter={e => e.currentTarget.style.borderColor = S.accentRed}
+                onMouseLeave={e => e.currentTarget.style.borderColor = S.borderColor}>
+                SIGN OUT
+              </button>
+            </div>
+          );
+        })()}
       </div>
 
       <div style={{ display: "flex", maxWidth: 1400, margin: "0 auto", alignItems: "stretch" }}>
