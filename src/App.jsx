@@ -254,7 +254,6 @@ const DEFAULT_SETTINGS = {
   graphShapeNormalize: true,
   workerUrl: "",
   heliusKey: "",
-  appSecret: "",   // X-App-Secret header — must match APP_SECRET env var in worker
   // shareCard: removed — card appearance is now per-rank (rank.card), see DEFAULT_CARD below
   // ── Rank definitions (editable in admin) ─────────────────────────────────
   pnlRanks: [
@@ -2259,11 +2258,9 @@ function useWalletData(S, clientToken = "") {
   const walletsRef = useRef(wallets);
   const apiKeyRef = useRef(S.workerUrl);
   const heliusKeyRef = useRef(S.heliusKey);
-  const appSecretRef = useRef(S.appSecret ?? "");
   const clientTokenRef = useRef(clientToken);
   useEffect(() => { apiKeyRef.current = S.workerUrl; }, [S.workerUrl]);
   useEffect(() => { heliusKeyRef.current = S.heliusKey; }, [S.heliusKey]);
-  useEffect(() => { appSecretRef.current = S.appSecret ?? ""; }, [S.appSecret]);
   useEffect(() => { clientTokenRef.current = clientToken; }, [clientToken]);
   useEffect(() => { walletsRef.current = wallets; }, [wallets]);
 
@@ -2304,7 +2301,7 @@ function useWalletData(S, clientToken = "") {
     setLoading((p) => ({ ...p, [id]: { progress: 0 } }));
     setErrors((p) => ({ ...p, [id]: null }));
 
-    const appSecret = appSecretRef.current; const ct = clientTokenRef.current; const headers = { ...(appSecret ? { "X-App-Secret": appSecret } : {}), ...(ct ? { "X-Client-Token": ct } : {}) };
+    const userToken = localStorage.getItem("soltrack_user_token") ?? ""; const ct = clientTokenRef.current; const headers = { ...(userToken ? { "Authorization": `Bearer ${userToken}` } : {}), ...(ct ? { "X-Client-Token": ct } : {}) };
 
     try {
       const base = sanitizeWorkerUrl(workerUrl);
@@ -2342,7 +2339,7 @@ function useWalletData(S, clientToken = "") {
     if (!workerUrl) return;
     setSyncing(p => ({ ...p, [id]: true }));
     try {
-      const appSecret = appSecretRef.current; const ct = clientTokenRef.current; const headers = { ...(appSecret ? { "X-App-Secret": appSecret } : {}), ...(ct ? { "X-Client-Token": ct } : {}) };
+      const userToken = localStorage.getItem("soltrack_user_token") ?? ""; const ct = clientTokenRef.current; const headers = { ...(userToken ? { "Authorization": `Bearer ${userToken}` } : {}), ...(ct ? { "X-Client-Token": ct } : {}) };
       const base = sanitizeWorkerUrl(workerUrl);
       const res = await fetch(`${base}/sync`, { method: "POST", headers: { ...headers, "Content-Type": "application/json" }, body: JSON.stringify({ address, heliusKey: heliusKeyRef.current || undefined }) });
       if (res.ok) {
@@ -2395,88 +2392,164 @@ function useWalletData(S, clientToken = "") {
 // ── ONBOARDING ────────────────────────────────────────────────────────────────
 function Onboarding({ S, onComplete }) {
   const [workerUrl, setWorkerUrl] = useState(loadLS("soltrack_settings", {}).workerUrl || "");
-  const [heliusKey, setHeliusKey] = useState(loadLS("soltrack_settings", {}).heliusKey || "");
-  const [step, setStep] = useState(workerUrl ? 2 : 1);
-  const [testing, setTesting] = useState(false);
+  const [step, setStep] = useState("worker"); // "worker" | "connect" | "helius" | "testing"
   const [err, setErr] = useState("");
-
-  const testAndSave = async () => {
-    if (!workerUrl || !heliusKey) return;
-    setTesting(true); setErr("");
-    try {
-      const res = await fetch(`${sanitizeWorkerUrl(workerUrl)}/health`);
-      if (!res.ok) throw new Error("Worker returned " + res.status);
-      onComplete(workerUrl, heliusKey);
-    } catch (e) {
-      setErr("Could not reach worker: " + e.message);
-    } finally { setTesting(false); }
-  };
+  const [connecting, setConnecting] = useState(false);
 
   const mono = { fontFamily: "'DM Mono',monospace" };
   const orb  = { fontFamily: "'Orbitron',monospace" };
+  const green = "#00ff91";
+
+  const connectWallet = async () => {
+    setConnecting(true); setErr("");
+    try {
+      const provider = window.solana || window.phantom?.solana;
+      if (!provider) throw new Error("No Solana wallet found. Install Phantom or Solflare.");
+
+      await provider.connect();
+      const pubkeyBytes = provider.publicKey.toBytes();
+      const pubkeyHex   = Array.from(pubkeyBytes).map(b => b.toString(16).padStart(2,"0")).join("");
+
+      const base = sanitizeWorkerUrl(workerUrl);
+
+      // Get nonce
+      const nonceRes = await fetch(`${base}/auth/nonce?pubkey=${pubkeyHex}`);
+      if (!nonceRes.ok) throw new Error("Worker unreachable: " + nonceRes.status);
+      const { message } = await nonceRes.json();
+
+      // Sign
+      const msgBytes = new TextEncoder().encode(message);
+      const signed   = await provider.signMessage(msgBytes, "utf8");
+      const sigHex   = Array.from(signed.signature).map(b => b.toString(16).padStart(2,"0")).join("");
+
+      // Verify + get JWT
+      const verifyRes = await fetch(`${base}/auth/verify`, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ pubkey: pubkeyHex, signature: sigHex, message }),
+      });
+      if (!verifyRes.ok) throw new Error("Auth failed: " + (await verifyRes.json()).error);
+      const { token } = await verifyRes.json();
+      localStorage.setItem("soltrack_user_token", token);
+
+      // Check if Helius key already stored
+      const hasKeyRes = await fetch(`${base}/auth/has-key`, {
+        headers: { "Authorization": `Bearer ${token}` }
+      });
+      const { hasKey } = await hasKeyRes.json();
+
+      if (hasKey) {
+        onComplete(workerUrl, token);
+      } else {
+        setStep("helius");
+      }
+    } catch (e) {
+      setErr(e.message);
+    } finally {
+      setConnecting(false);
+    }
+  };
+
+  const saveHeliusKey = async (key) => {
+    if (!key.trim()) return;
+    setConnecting(true); setErr("");
+    try {
+      const base  = sanitizeWorkerUrl(workerUrl);
+      const token = localStorage.getItem("soltrack_user_token");
+      const res   = await fetch(`${base}/auth/setup-key`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}` },
+        body: JSON.stringify({ heliusKey: key.trim() }),
+      });
+      if (!res.ok) throw new Error("Failed to save key: " + (await res.json()).error);
+      onComplete(workerUrl, token);
+    } catch (e) {
+      setErr(e.message);
+    } finally {
+      setConnecting(false);
+    }
+  };
+
+  const [heliusInput, setHeliusInput] = useState("");
 
   return (
     <div style={{ minHeight: "100vh", background: "#010101", display: "flex", alignItems: "center", justifyContent: "center" }}>
       <div style={{ width: 480, padding: 40, border: "1px solid #262626", background: "#0d0d0d", position: "relative" }}>
-        {/* Accent corner */}
-        <div style={{ position: "absolute", top: 0, left: 0, width: 40, height: 2, background: "#00ff9d" }} />
-        <div style={{ position: "absolute", top: 0, left: 0, width: 2, height: 40, background: "#00ff9d" }} />
+        <div style={{ position: "absolute", top: 0, left: 0, width: 40, height: 2, background: green }} />
+        <div style={{ position: "absolute", top: 0, left: 0, width: 2, height: 40, background: green }} />
 
         <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 32 }}>
-          <div style={{ width: 7, height: 7, background: "#00ff9d", boxShadow: "0 0 12px #00ff9d" }} />
+          <div style={{ width: 7, height: 7, background: green, boxShadow: `0 0 12px ${green}` }} />
           <span style={{ ...orb, fontWeight: 900, fontSize: 14, letterSpacing: ".2em", color: "#fff" }}>SOLTRACK</span>
           <span style={{ ...mono, fontSize: 9, color: "#919191", letterSpacing: ".1em" }}>SETUP</span>
         </div>
 
-        {/* Step 1 — Helius key */}
-        <div style={{ marginBottom: 28 }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12 }}>
-            <div style={{ width: 18, height: 18, border: `1px solid ${step >= 1 ? "#00ff9d" : "#262626"}`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 9, color: step >= 1 ? "#00ff9d" : "#919191", ...mono }}>1</div>
-            <span style={{ ...mono, fontSize: 11, color: "#f2f2f2", letterSpacing: ".08em" }}>YOUR HELIUS API KEY</span>
-          </div>
-          <p style={{ ...mono, fontSize: 10, color: "#919191", marginBottom: 12, lineHeight: 1.6 }}>
-            Free at <a href="https://helius.dev" target="_blank" rel="noopener" style={{ color: "#00ff9d" }}>helius.dev</a> → sign up → Dashboard → API Keys.<br />
-            1M credits/month on the free tier. Your key stays in your browser only.
-          </p>
-          <input
-            className="inp" style={{ width: "100%", boxSizing: "border-box" }}
-            placeholder="your-helius-api-key"
-            value={heliusKey}
-            onChange={e => { setHeliusKey(e.target.value); setStep(1); }}
-          />
-        </div>
+        {step === "worker" && (
+          <>
+            <div style={{ marginBottom: 28 }}>
+              <span style={{ ...mono, fontSize: 11, color: "#f2f2f2", letterSpacing: ".08em" }}>WORKER URL</span>
+              <p style={{ ...mono, fontSize: 10, color: "#919191", marginBottom: 12, marginTop: 8, lineHeight: 1.6 }}>
+                The Cloudflare Worker that powers SOLTRACK.<br/>
+                Get it from the person who shared this app with you.
+              </p>
+              <input className="inp" style={{ width: "100%", boxSizing: "border-box" }}
+                placeholder="https://soltrack.YOUR-NAME.workers.dev"
+                value={workerUrl}
+                onChange={e => setWorkerUrl(e.target.value)}
+                onKeyDown={e => e.key === "Enter" && workerUrl && setStep("connect")}
+              />
+            </div>
+            <button className="lbtn" style={{ "--accent": green, width: "100%", padding: "10px 0", fontSize: 11, letterSpacing: ".15em" }}
+              onClick={() => setStep("connect")} disabled={!workerUrl}>
+              CONTINUE →
+            </button>
+          </>
+        )}
 
-        {/* Step 2 — Worker URL */}
-        <div style={{ marginBottom: 28 }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12 }}>
-            <div style={{ width: 18, height: 18, border: `1px solid ${step >= 2 ? "#00ff9d" : "#262626"}`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 9, color: step >= 2 ? "#00ff9d" : "#919191", ...mono }}>2</div>
-            <span style={{ ...mono, fontSize: 11, color: "#f2f2f2", letterSpacing: ".08em" }}>SOLTRACK WORKER URL</span>
-          </div>
-          <p style={{ ...mono, fontSize: 10, color: "#919191", marginBottom: 12, lineHeight: 1.6 }}>
-            The Cloudflare Worker that powers SOLTRACK.<br />
-            Get it from the person who shared this app with you.
-          </p>
-          <input
-            className="inp" style={{ width: "100%", boxSizing: "border-box" }}
-            placeholder="https://soltrack.YOUR-NAME.workers.dev"
-            value={workerUrl}
-            onChange={e => setWorkerUrl(e.target.value)}
-          />
-        </div>
+        {step === "connect" && (
+          <>
+            <div style={{ marginBottom: 28 }}>
+              <span style={{ ...mono, fontSize: 11, color: "#f2f2f2", letterSpacing: ".08em" }}>SIGN IN WITH WALLET</span>
+              <p style={{ ...mono, fontSize: 10, color: "#919191", marginBottom: 12, marginTop: 8, lineHeight: 1.6 }}>
+                Connect your Solana wallet (Phantom, Solflare, etc.) to authenticate.<br/>
+                No transaction — just a signature to prove ownership.
+              </p>
+            </div>
+            <button className="lbtn" style={{ "--accent": green, width: "100%", padding: "10px 0", fontSize: 11, letterSpacing: ".15em" }}
+              onClick={connectWallet} disabled={connecting}>
+              {connecting ? "CONNECTING..." : "CONNECT WALLET →"}
+            </button>
+          </>
+        )}
 
-        {err && <div style={{ ...mono, fontSize: 10, color: "#ff0033", marginBottom: 12 }}>{err}</div>}
+        {step === "helius" && (
+          <>
+            <div style={{ marginBottom: 28 }}>
+              <span style={{ ...mono, fontSize: 11, color: "#f2f2f2", letterSpacing: ".08em" }}>HELIUS API KEY</span>
+              <p style={{ ...mono, fontSize: 10, color: "#919191", marginBottom: 12, marginTop: 8, lineHeight: 1.6 }}>
+                Free at <a href="https://helius.dev" target="_blank" rel="noopener" style={{ color: green }}>helius.dev</a> → sign up → Dashboard → API Keys.<br/>
+                Your key is encrypted and stored server-side — never exposed in the browser.
+              </p>
+              <input className="inp" style={{ width: "100%", boxSizing: "border-box" }}
+                placeholder="your-helius-api-key"
+                value={heliusInput}
+                onChange={e => setHeliusInput(e.target.value)}
+                onKeyDown={e => e.key === "Enter" && saveHeliusKey(heliusInput)}
+              />
+            </div>
+            <button className="lbtn" style={{ "--accent": green, width: "100%", padding: "10px 0", fontSize: 11, letterSpacing: ".15em" }}
+              onClick={() => saveHeliusKey(heliusInput)} disabled={connecting || !heliusInput}>
+              {connecting ? "SAVING..." : "LAUNCH SOLTRACK →"}
+            </button>
+          </>
+        )}
 
-        <button
-          className="lbtn" style={{ "--accent": "#00ff9d", width: "100%", padding: "10px 0", fontSize: 11, letterSpacing: ".15em" }}
-          onClick={testAndSave}
-          disabled={!workerUrl || !heliusKey || testing}>
-          {testing ? "CONNECTING..." : "LAUNCH SOLTRACK →"}
-        </button>
+        {err && <div style={{ ...mono, fontSize: 10, color: "#ff0033", marginTop: 14 }}>{err}</div>}
       </div>
     </div>
   );
 }
 
+// ── ADMIN PANEL ───────────────────────────────────────────────────────────────
 // ── ADMIN PANEL ───────────────────────────────────────────────────────────────
 function AdminPanel({ S, setSetting }) {
   const [authed, setAuthed]   = useState(false);
@@ -4038,7 +4111,7 @@ function ResetMyDataButton({ S, workerUrl, appSecret }) {
     if (!clientToken) { setPhase("error"); setErrMsg("No client token found in this browser."); return; }
     const base = sanitizeWorkerUrl(workerUrl);
     try {
-      const headers = { "Content-Type": "application/json", ...(appSecret ? { "X-App-Secret": appSecret } : {}) };
+      const userToken = localStorage.getItem("soltrack_user_token") ?? ""; const headers = { "Content-Type": "application/json", ...(userToken ? { "Authorization": `Bearer ${userToken}` } : {}) };
       const res = await fetch(`${base}/wipe`, { method: "POST", headers, body: JSON.stringify({ clientToken }) });
       const data = await res.json();
       if (!res.ok) { setPhase("error"); setErrMsg(data.error ?? "Unknown error"); return; }
@@ -4104,7 +4177,7 @@ function SettingsPanel({ S, setSetting, setS }) {
   const mono = { fontFamily: "'DM Mono',monospace" };
 
   // ── Export/Import presets (heliusKey is NEVER exported — it's a secret API key)
-  const PRESET_SKIP_KEYS = ["heliusKey", "appSecret"];
+  const PRESET_SKIP_KEYS = ["heliusKey", "appSecret", "userToken"];
   const exportPreset = () => {
     const safe = Object.fromEntries(Object.entries(S).filter(([k]) => !PRESET_SKIP_KEYS.includes(k)));
     const blob = new Blob([JSON.stringify(safe, null, 2)], { type: "application/json" });
@@ -4499,7 +4572,7 @@ export default function App() {
   useEffect(() => {
     if (!S.workerUrl) return;
     const base = sanitizeWorkerUrl(S.workerUrl);
-    fetch(`${base}/ranks`, S.appSecret ? { headers: { 'X-App-Secret': S.appSecret } } : {})
+    fetch(`${base}/ranks`)
       .then(r => r.ok ? r.json() : null)
       .then(data => {
         if (!data?.ranks?.length) return;
@@ -4552,7 +4625,7 @@ export default function App() {
     if (!S.workerUrl || !wallets.length) return;
     let cancelled = false;
     const base = sanitizeWorkerUrl(S.workerUrl);
-    const headers = { ...(S.appSecret ? { "X-App-Secret": S.appSecret } : {}) };
+    const userToken = localStorage.getItem("soltrack_user_token") ?? ""; const headers = { ...(userToken ? { "Authorization": `Bearer ${userToken}` } : {}) };
     const isCombined = activeWallets.has("combined");
     const selected = isCombined
       ? wallets.filter(w => !(w.excludeAll ?? false))
@@ -4709,10 +4782,12 @@ export default function App() {
   }
 
   // ── ONBOARDING GATE ──────────────────────────────────────────────────────────
-  if (!S.workerUrl || !S.heliusKey) {
-    return <Onboarding S={S} onComplete={(workerUrl, heliusKey) => {
+  const userToken = useMemo(() => localStorage.getItem("soltrack_user_token") ?? "", []);
+  if (!S.workerUrl || !userToken) {
+    return <Onboarding S={S} onComplete={(workerUrl, token) => {
       setSetting("workerUrl", sanitizeWorkerUrl(workerUrl));
-      setSetting("heliusKey", heliusKey);
+      localStorage.setItem("soltrack_user_token", token);
+      window.location.reload();
     }} />;
   }
 
