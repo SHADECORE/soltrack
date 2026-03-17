@@ -3080,10 +3080,6 @@ function AdminPanel({ S, setSetting }) {
             </div>
           </>
         )}
-
-
-          </>
-        )}
       </div>
     </div>
   );
