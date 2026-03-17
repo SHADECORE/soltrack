@@ -1,0 +1,145 @@
+/* Tab buttons */
+.tab-btn {
+  background: none;
+  border: none;
+  font-family: 'Orbitron', monospace;
+  font-size: 10px;
+  letter-spacing: .12em;
+  padding: 10px 16px;
+  cursor: pointer;
+  color: var(--dim, #252528);
+  text-transform: uppercase;
+  transition: color .15s;
+  position: relative;
+}
+.tab-btn::after {
+  content: '';
+  position: absolute;
+  bottom: 0;
+  left: 16px;
+  right: 16px;
+  height: 1px;
+  background: var(--accent, #00ffb4);
+  transform: scaleX(0);
+  transition: transform .2s;
+}
+.tab-btn:hover { color: var(--mid, #555); }
+.tab-btn.active { color: var(--accent, #00ffb4); }
+.tab-btn.active::after { transform: scaleX(1); }
+
+/* Wallet chips */.wchip:hover { border-color: #292930; color: #777; }
+.wchip.active { color: var(--accent, #00ffb4); border-color: color-mix(in srgb, var(--accent, #00ffb4) 27%, transparent); background: color-mix(in srgb, var(--accent, #00ffb4) 4%, transparent); }
+.wchip.combined.active { color: var(--purple, #a070ff); border-color: color-mix(in srgb, var(--purple, #a070ff) 27%, transparent); background: color-mix(in srgb, var(--purple, #a070ff) 4%, transparent); }
+
+/* Dot */
+.dot { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; }
+
+/* Add wallet button */.add-btn:hover { border-color: #2a2a32; color: var(--mid, #555); }
+
+/* Time filter buttons */
+.tf-btn {
+  background: none;
+  border: 1px solid var(--border, #141418);
+  color: var(--dim, #252528);
+  font-family: 'Orbitron', monospace;
+  font-size: 9px;
+  letter-spacing: .1em;
+  padding: 5px 12px;
+  cursor: pointer;
+  transition: all .15s;
+}
+.tf-btn.active { border-color: color-mix(in srgb, var(--accent, #00ffb4) 33%, transparent); color: var(--accent, #00ffb4); background: color-mix(in srgb, var(--accent, #00ffb4) 6%, transparent); }
+.tf-btn:hover:not(.active) { border-color: #222; color: var(--mid, #555); }
+
+/* Sort / small buttons */
+.sb {
+  background: none;
+  border: 1px solid var(--border, #141418);
+  color: var(--dim, #252528);
+  font-family: 'DM Mono', monospace;
+  font-size: 10px;
+  padding: 5px 12px;
+  cursor: pointer;
+  transition: all .15s;
+  letter-spacing: .06em;
+  text-transform: uppercase;
+}
+.sb.active { border-color: color-mix(in srgb, var(--accent, #00ffb4) 27%, transparent); color: var(--accent, #00ffb4); background: color-mix(in srgb, var(--accent, #00ffb4) 5%, transparent); }
+.sb:hover:not(.active) { border-color: #222; color: var(--mid, #555); }
+
+/* Table rows */
+.tr { border-bottom: 1px solid #0a0a0d; transition: background .1s; }
+.tr:hover { background: #0c0c10; }
+
+/* Type pills */
+.pill { display: inline-block; padding: 2px 8px; font-size: 10px; letter-spacing: .04em; }
+.pill-buy  { background: color-mix(in srgb, var(--buy,  #00ffb4) 9%,  transparent); color: var(--buy,  #00ffb4); border: 1px solid color-mix(in srgb, var(--buy,  #00ffb4) 15%, transparent); }
+.pill-sell { background: color-mix(in srgb, var(--sell, #ff3c64) 9%,  transparent); color: var(--sell, #ff3c64); border: 1px solid color-mix(in srgb, var(--sell, #ff3c64) 15%, transparent); }
+
+/* Text inputs */
+.inp {
+  background: #06060a;
+  border: 1px solid #141418;
+  color: #d0d0d0;
+  font-family: 'DM Mono', monospace;
+  font-size: 11px;
+  padding: 7px 11px;
+  outline: none;
+  transition: border-color .15s;
+}
+.inp:focus { border-color: rgba(0, 255, 180, 0.2); }
+.inp::placeholder { color: #252528; }
+
+.sinp {
+  background: #010101;
+  border: 1px solid #141418;
+  color: #d0d0d0;
+  font-family: 'DM Mono', monospace;
+  font-size: 12px;
+  padding: 8px 12px;
+  outline: none;
+  width: 100%;
+  transition: border-color .2s;
+}
+.sinp:focus { border-color: rgba(0, 255, 180, 0.27); }
+
+/* Light button */
+.lbtn {
+  background: color-mix(in srgb, var(--accent, #00ffb4) 7%, transparent);
+  border: 1px solid color-mix(in srgb, var(--accent, #00ffb4) 19%, transparent);
+  color: var(--accent, #00ffb4);
+  font-family: 'Orbitron', monospace;
+  font-size: 9px;
+  letter-spacing: .1em;
+  padding: 7px 16px;
+  cursor: pointer;
+  transition: all .15s;
+  white-space: nowrap;
+}
+.lbtn:hover {
+  background: color-mix(in srgb, var(--accent, #00ffb4) 11%, transparent);
+  border-color: color-mix(in srgb, var(--accent, #00ffb4) 33%, transparent);
+}
+
+/* Animations */
+@keyframes fadeUp {
+  from { opacity: 0; transform: translateY(6px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.fade-up { animation: fadeUp .25s ease forwards; }
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+.spin-ring {
+  width: 8px;
+  height: 8px;
+  border: 1px solid;
+  border-radius: 50%;
+  animation: spin 0.7s linear infinite;
+}
+
+/* Hide recharts default cursor */
+.recharts-tooltip-cursor { display: none !important; }
+
+/* Demo badge */

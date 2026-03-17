@@ -1,0 +1,16 @@
+*, *::before, *::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html, body, #root {
+  background: #010101;
+  min-height: 100vh;
+  color: #d0d0d0;
+  font-family: 'DM Mono', monospace;
+}
+
+::-webkit-scrollbar { width: 3px; }
+::-webkit-scrollbar-track { background: #010101; }
+::-webkit-scrollbar-thumb { background: #141418; }
