@@ -2308,7 +2308,7 @@ function useWalletData(S, clientToken = "") {
 
     try {
       const base = sanitizeWorkerUrl(workerUrl);
-      const res = await fetch(`${base}/wallet?address=${address}`, { signal: ctrl.signal, headers });
+      const res = await fetch(`${base}/wallet`, { method: "POST", signal: ctrl.signal, headers: { ...headers, "Content-Type": "application/json" }, body: JSON.stringify({ address }) });
 
       let trades;
       if (res.ok) {
@@ -2322,13 +2322,7 @@ function useWalletData(S, clientToken = "") {
       } else if (res.status === 403) {
         throw new Error("This wallet has been banned from SOLTRACK");
       } else {
-        trades = await fetchTrades(address, workerUrl,
-          (n) => setLoading((p) => ({ ...p, [id]: { progress: n } })),
-          ctrl.signal, headers
-        );
-        const unknownMints = [...new Set(trades.map(t => t.mint).filter(Boolean).filter(m => !TOKEN_SYMBOL_CACHE[m]))];
-        if (unknownMints.length) await resolveSymbols(unknownMints);
-        trades = trades.map(t => t.mint && TOKEN_SYMBOL_CACHE[t.mint] ? { ...t, token: TOKEN_SYMBOL_CACHE[t.mint] } : t);
+        throw new Error(`Worker returned ${res.status}`);
       }
 
       setWallets((p) => p.map((w) => w.id === id ? { ...w, trades, loaded: true } : w));
@@ -2350,7 +2344,7 @@ function useWalletData(S, clientToken = "") {
     try {
       const appSecret = appSecretRef.current; const ct = clientTokenRef.current; const headers = { ...(heliusKey ? { "X-Helius-Key": heliusKey } : {}), ...(appSecret ? { "X-App-Secret": appSecret } : {}), ...(ct ? { "X-Client-Token": ct } : {}) };
       const base = sanitizeWorkerUrl(workerUrl);
-      const res = await fetch(`${base}/sync?address=${address}`, { headers });
+      const res = await fetch(`${base}/sync`, { method: "POST", headers: { ...headers, "Content-Type": "application/json" }, body: JSON.stringify({ address }) });
       if (res.ok) {
         const result = await res.json();
         setSyncStates(p => ({
@@ -4565,7 +4559,7 @@ export default function App() {
       : wallets.filter(w => activeWallets.has(w.id));
     setReclaimable(null);
     Promise.allSettled(selected.map(w =>
-      fetch(`${base}/open-accounts?address=${w.address}`, { headers })
+      fetch(`${base}/open-accounts`, { method: "POST", headers: { ...headers, "Content-Type": "application/json" }, body: JSON.stringify({ address: w.address }) })
         .then(r => r.ok ? r.json() : null)
     )).then(results => {
       if (cancelled) return;
