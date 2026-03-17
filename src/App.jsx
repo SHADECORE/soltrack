@@ -2304,11 +2304,11 @@ function useWalletData(S, clientToken = "") {
     setLoading((p) => ({ ...p, [id]: { progress: 0 } }));
     setErrors((p) => ({ ...p, [id]: null }));
 
-    const appSecret = appSecretRef.current; const ct = clientTokenRef.current; const headers = { ...(heliusKey ? { "X-Helius-Key": heliusKey } : {}), ...(appSecret ? { "X-App-Secret": appSecret } : {}), ...(ct ? { "X-Client-Token": ct } : {}) };
+    const appSecret = appSecretRef.current; const ct = clientTokenRef.current; const headers = { ...(appSecret ? { "X-App-Secret": appSecret } : {}), ...(ct ? { "X-Client-Token": ct } : {}) };
 
     try {
       const base = sanitizeWorkerUrl(workerUrl);
-      const res = await fetch(`${base}/wallet`, { method: "POST", signal: ctrl.signal, headers: { ...headers, "Content-Type": "application/json" }, body: JSON.stringify({ address }) });
+      const res = await fetch(`${base}/wallet`, { method: "POST", signal: ctrl.signal, headers: { ...headers, "Content-Type": "application/json" }, body: JSON.stringify({ address, heliusKey: heliusKeyRef.current || undefined }) });
 
       let trades;
       if (res.ok) {
@@ -2342,9 +2342,9 @@ function useWalletData(S, clientToken = "") {
     if (!workerUrl) return;
     setSyncing(p => ({ ...p, [id]: true }));
     try {
-      const appSecret = appSecretRef.current; const ct = clientTokenRef.current; const headers = { ...(heliusKey ? { "X-Helius-Key": heliusKey } : {}), ...(appSecret ? { "X-App-Secret": appSecret } : {}), ...(ct ? { "X-Client-Token": ct } : {}) };
+      const appSecret = appSecretRef.current; const ct = clientTokenRef.current; const headers = { ...(appSecret ? { "X-App-Secret": appSecret } : {}), ...(ct ? { "X-Client-Token": ct } : {}) };
       const base = sanitizeWorkerUrl(workerUrl);
-      const res = await fetch(`${base}/sync`, { method: "POST", headers: { ...headers, "Content-Type": "application/json" }, body: JSON.stringify({ address }) });
+      const res = await fetch(`${base}/sync`, { method: "POST", headers: { ...headers, "Content-Type": "application/json" }, body: JSON.stringify({ address, heliusKey: heliusKeyRef.current || undefined }) });
       if (res.ok) {
         const result = await res.json();
         setSyncStates(p => ({
@@ -4552,14 +4552,14 @@ export default function App() {
     if (!S.workerUrl || !wallets.length) return;
     let cancelled = false;
     const base = sanitizeWorkerUrl(S.workerUrl);
-    const headers = { ...(S.heliusKey ? { "X-Helius-Key": S.heliusKey } : {}), ...(S.appSecret ? { "X-App-Secret": S.appSecret } : {}) };
+    const headers = { ...(S.appSecret ? { "X-App-Secret": S.appSecret } : {}) };
     const isCombined = activeWallets.has("combined");
     const selected = isCombined
       ? wallets.filter(w => !(w.excludeAll ?? false))
       : wallets.filter(w => activeWallets.has(w.id));
     setReclaimable(null);
     Promise.allSettled(selected.map(w =>
-      fetch(`${base}/open-accounts`, { method: "POST", headers: { ...headers, "Content-Type": "application/json" }, body: JSON.stringify({ address: w.address }) })
+      fetch(`${base}/open-accounts`, { method: "POST", headers: { ...headers, "Content-Type": "application/json" }, body: JSON.stringify({ address: w.address, heliusKey: S.heliusKey || undefined }) })
         .then(r => r.ok ? r.json() : null)
     )).then(results => {
       if (cancelled) return;
