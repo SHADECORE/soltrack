@@ -2403,7 +2403,7 @@ function Onboarding({ S, onComplete }) {
   const connectWallet = async () => {
     setConnecting(true); setErr("");
     try {
-      const provider = window.solana || window.phantom?.solana;
+      const provider = window.phantom?.solana || window.solflare || window.solana;
       if (!provider) throw new Error("No Solana wallet found. Install Phantom or Solflare.");
 
       await provider.connect();
