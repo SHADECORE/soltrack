@@ -2477,10 +2477,21 @@ function Onboarding({ S, onComplete }) {
         <div style={{ position: "absolute", top: 0, left: 0, width: 40, height: 2, background: green }} />
         <div style={{ position: "absolute", top: 0, left: 0, width: 2, height: 40, background: green }} />
 
-        <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 32 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 24 }}>
           <div style={{ width: 7, height: 7, background: green, boxShadow: `0 0 12px ${green}` }} />
           <span style={{ ...orb, fontWeight: 900, fontSize: 14, letterSpacing: ".2em", color: "#fff" }}>SOLTRACK</span>
           <span style={{ ...mono, fontSize: 9, color: "#919191", letterSpacing: ".1em" }}>SETUP</span>
+        </div>
+
+        {/* Privacy notice */}
+        <div style={{ marginBottom: 28, padding: "12px 14px", border: "1px solid #1a3a1a", background: "#0a1a0a" }}>
+          <div style={{ ...mono, fontSize: 10, color: green, letterSpacing: ".08em", marginBottom: 8 }}>🔒 КОНФИДЕНЦИАЛЬНОСТЬ</div>
+          <div style={{ ...mono, fontSize: 10, color: "#919191", lineHeight: 1.8 }}>
+            <div>· Твои кошельки <span style={{ color: "#fff" }}>никогда не хранятся</span> в базе данных в открытом виде — только криптографический хэш.</div>
+            <div>· Ключ Helius зашифрован на сервере — <span style={{ color: "#fff" }}>никто не может его прочитать</span>, включая администратора.</div>
+            <div>· Администратор видит только <span style={{ color: "#fff" }}>общее количество</span> кошельков и сделок — без адресов и данных.</div>
+            <div>· Вход через подпись кошелька — <span style={{ color: "#fff" }}>без пароля и email</span>, транзакция не создаётся.</div>
+          </div>
         </div>
 
         {step === "worker" && (
@@ -2498,6 +2509,25 @@ function Onboarding({ S, onComplete }) {
                 onKeyDown={e => e.key === "Enter" && workerUrl && setStep("connect")}
               />
             </div>
+
+            {/* Privacy guarantee */}
+            <div style={{ marginBottom: 24, padding: "14px 16px", border: "1px solid #1a2e1a", background: "#0a150a" }}>
+              <div style={{ ...mono, fontSize: 9, color: "#00ff91", letterSpacing: ".12em", marginBottom: 10 }}>YOUR PRIVACY</div>
+              {[
+                ["Wallet addresses", "stored as one-way hashes — raw addresses never touch the database"],
+                ["Helius API key", "encrypted with AES-256 server-side — never visible in network requests"],
+                ["Auth", "your Solana wallet signature — no password, no email"],
+                ["Admin access", "sees only total counts (wallets: N, trades: N) — no addresses, no history"],
+              ].map(([title, desc]) => (
+                <div key={title} style={{ display: "flex", gap: 8, marginBottom: 6 }}>
+                  <span style={{ color: "#00ff91", flexShrink: 0 }}>✓</span>
+                  <span style={{ ...mono, fontSize: 9, color: "#919191", lineHeight: 1.5 }}>
+                    <span style={{ color: "#c0c0c0" }}>{title}</span> — {desc}
+                  </span>
+                </div>
+              ))}
+            </div>
+
             <button className="lbtn" style={{ "--accent": green, width: "100%", padding: "10px 0", fontSize: 11, letterSpacing: ".15em" }}
               onClick={() => setStep("connect")} disabled={!workerUrl}>
               CONTINUE →
