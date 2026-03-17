@@ -3143,10 +3143,10 @@ function AdminPanel({ S, setSetting }) {
               ))}
             </div>
             <div style={{ border: `1px solid ${border}`, padding: "16px 18px", background: card }}>
-              <div style={{ ...mono, fontSize: 9, color: dim, lineHeight: 1.8 }}>
+              <div style={{ ...mono, fontSize: 13, color: dim, lineHeight: 1.8 }}>
                 <div>Wallet addresses are stored as <span style={{ color: green }}>HMAC-SHA256 hashes</span> — raw addresses are never saved to the database.</div>
                 <div>Individual wallet data is not visible here by design.</div>
-                <div style={{ marginTop: 8, color: dim, opacity: 0.6 }}>To manage a specific wallet, use the purge/delete endpoints directly from the worker dashboard.</div>
+                <div style={{ marginTop: 8, color: dim, opacity: 0.6, fontSize: 11 }}>To manage a specific wallet, use the purge/delete endpoints directly from the worker dashboard.</div>
               </div>
             </div>
           </>
