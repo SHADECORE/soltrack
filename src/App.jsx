@@ -2259,8 +2259,12 @@ function useWalletData(S, clientToken = "") {
   const walletsRef = useRef(wallets);
   const apiKeyRef = useRef(S.workerUrl);
   const heliusKeyRef = useRef(S.heliusKey);
+  const appSecretRef = useRef(S.appSecret ?? "");
+  const clientTokenRef = useRef(clientToken);
   useEffect(() => { apiKeyRef.current = S.workerUrl; }, [S.workerUrl]);
   useEffect(() => { heliusKeyRef.current = S.heliusKey; }, [S.heliusKey]);
+  useEffect(() => { appSecretRef.current = S.appSecret ?? ""; }, [S.appSecret]);
+  useEffect(() => { clientTokenRef.current = clientToken; }, [clientToken]);
   useEffect(() => { walletsRef.current = wallets; }, [wallets]);
 
   // Save wallet list (address + label + colorIdx only, not trades) on every change
@@ -2300,7 +2304,7 @@ function useWalletData(S, clientToken = "") {
     setLoading((p) => ({ ...p, [id]: { progress: 0 } }));
     setErrors((p) => ({ ...p, [id]: null }));
 
-    const appSecret = S.appSecret ?? ""; const headers = { ...(heliusKey ? { "X-Helius-Key": heliusKey } : {}), ...(appSecret ? { "X-App-Secret": appSecret } : {}), ...(clientToken ? { "X-Client-Token": clientToken } : {}) };
+    const appSecret = appSecretRef.current; const ct = clientTokenRef.current; const headers = { ...(heliusKey ? { "X-Helius-Key": heliusKey } : {}), ...(appSecret ? { "X-App-Secret": appSecret } : {}), ...(ct ? { "X-Client-Token": ct } : {}) };
 
     try {
       const base = sanitizeWorkerUrl(workerUrl);
@@ -2344,7 +2348,7 @@ function useWalletData(S, clientToken = "") {
     if (!workerUrl) return;
     setSyncing(p => ({ ...p, [id]: true }));
     try {
-      const appSecret = S.appSecret ?? ""; const headers = { ...(heliusKey ? { "X-Helius-Key": heliusKey } : {}), ...(appSecret ? { "X-App-Secret": appSecret } : {}), ...(clientToken ? { "X-Client-Token": clientToken } : {}) };
+      const appSecret = appSecretRef.current; const ct = clientTokenRef.current; const headers = { ...(heliusKey ? { "X-Helius-Key": heliusKey } : {}), ...(appSecret ? { "X-App-Secret": appSecret } : {}), ...(ct ? { "X-Client-Token": ct } : {}) };
       const base = sanitizeWorkerUrl(workerUrl);
       const res = await fetch(`${base}/sync?address=${address}`, { headers });
       if (res.ok) {
