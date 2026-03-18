@@ -858,7 +858,7 @@ function PnlGraph({ data, color, S, height = 210, wallets = [], zoom: zoomProp, 
         {hovP && hovD && hovD.tradePnl !== undefined && (() => {
           const col = ptColor(hovD.tradePnl);
           const tradePct = pct(hovD.tradePnl, hovD.solIn);
-          const walletLabel = hovD.wallet ? (wallets.find(w => w.address === hovD.wallet)?.label ?? hovD.wallet.slice(0,6) + "…") : null;
+          const walletLabel = hovD.wallet ? (wallets.find(w => w.hash === hovD.wallet || w.address === hovD.wallet)?.label ?? hovD.wallet.slice(0,6) + "…") : null;
           const TW = 168, TH = (tradePct ? 90 : 76) + (walletLabel ? 14 : 0);
           const tx = hovP.x + TW + 12 > W ? hovP.x - TW - 8 : hovP.x + 12;
           const ty = Math.max(PAD.top, Math.min(H - PAD.bottom - TH, hovP.y - TH / 2));
@@ -2311,9 +2311,12 @@ function useWalletData(S, clientToken = "") {
       if (res.ok) {
         const data = await res.json();
         trades = data.trades ?? [];
-        // Store sync state for this wallet
+        // Store sync state and server hash for this wallet
         if (data.syncState) {
           setSyncStates(p => ({ ...p, [address]: data.syncState }));
+        }
+        if (data.wallet?.address) {
+          setWallets(p => p.map(w => w.id === id ? { ...w, hash: data.wallet.address } : w));
         }
         trades = trades.map(t => t.mint && TOKEN_SYMBOL_CACHE[t.mint] ? { ...t, token: TOKEN_SYMBOL_CACHE[t.mint] } : t);
       } else if (res.status === 403) {
@@ -2491,7 +2494,7 @@ function Onboarding({ S, onComplete }) {
             <div>· Your Helius key is <span style={{ color: "#fff" }}>encrypted server-side</span> — nobody can read it, including the admin.</div>
             <div>· Admin can only see <span style={{ color: "#fff" }}>total counts</span> — no addresses, no trade data.</div>
             <div>· Sign in via wallet signature — <span style={{ color: "#fff" }}>no password, no email</span>, no transaction is created.</div>
-            <div>· The signature <span style={{ color: "#fff" }}>proves you own the wallet</span> but gives nobody access to it — like showing an ID: confirms identity, transfers nothing.</div>
+            <div>· The wallet you sign in with is your <span style={{ color: "#fff" }}>identity key only</span> — it doesn't need to be a trading wallet. Always use the same wallet to sign in to access your data.</div>
           </div>
         </div>
 
@@ -4203,6 +4206,99 @@ function ResetMyDataButton({ S, workerUrl, appSecret }) {
   );
 }
 
+function MigrateWalletButton({ S, workerUrl }) {
+  const [phase, setPhase] = useState("idle"); // idle | confirm | signing | done | error
+  const [errMsg, setErrMsg] = useState("");
+  const mono = { fontFamily: "'DM Mono',monospace" };
+
+  const doMigrate = async () => {
+    setPhase("signing"); setErrMsg("");
+    try {
+      const provider = window.phantom?.solana || window.solflare || window.solana;
+      if (!provider) throw new Error("No Solana wallet found.");
+      await provider.connect();
+
+      const pubkeyBytes = provider.publicKey.toBytes();
+      const pubkeyHex   = Array.from(pubkeyBytes).map(b => b.toString(16).padStart(2,"0")).join("");
+      const base        = sanitizeWorkerUrl(workerUrl);
+      const oldToken    = localStorage.getItem("soltrack_user_token") ?? "";
+
+      // Get nonce for new wallet
+      const nonceRes = await fetch(`${base}/auth/nonce?pubkey=${pubkeyHex}`);
+      if (!nonceRes.ok) throw new Error("Worker unreachable");
+      const { message } = await nonceRes.json();
+
+      // Sign with new wallet
+      const msgBytes = new TextEncoder().encode(message);
+      const signed   = await provider.signMessage(msgBytes, "utf8");
+      const sigHex   = Array.from(signed.signature).map(b => b.toString(16).padStart(2,"0")).join("");
+
+      // Call migrate — passes old JWT + new wallet proof
+      const res = await fetch(`${base}/auth/migrate`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${oldToken}` },
+        body: JSON.stringify({ pubkey: pubkeyHex, signature: sigHex, message }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? "Migration failed");
+
+      localStorage.setItem("soltrack_user_token", data.token);
+      setPhase("done");
+    } catch (e) {
+      setPhase("error"); setErrMsg(e.message);
+    }
+  };
+
+  if (phase === "idle") return (
+    <button onClick={() => setPhase("confirm")}
+      style={{ background: "none", border: `1px solid ${S.borderColor}`, color: S.textDim, ...mono,
+        fontSize: 9, padding: "7px 14px", cursor: "pointer", letterSpacing: ".08em" }}
+      onMouseEnter={e => e.currentTarget.style.borderColor = S.accentGreen}
+      onMouseLeave={e => e.currentTarget.style.borderColor = S.borderColor}>
+      MIGRATE TO NEW AUTH WALLET
+    </button>
+  );
+
+  if (phase === "confirm") return (
+    <div style={{ border: `1px solid ${S.borderColor}`, padding: "12px 14px" }}>
+      <div style={{ ...mono, fontSize: 9, color: S.textDim, marginBottom: 10, lineHeight: 1.7 }}>
+        Connect the wallet you want to use as your new sign-in identity.<br/>
+        Your Helius key and all tracked wallets will carry over automatically.
+      </div>
+      <div style={{ display: "flex", gap: 8 }}>
+        <button onClick={doMigrate}
+          style={{ background: "none", border: `1px solid ${S.accentGreen}55`, color: S.accentGreen, ...mono,
+            fontSize: 9, padding: "6px 14px", cursor: "pointer" }}>
+          CONNECT NEW WALLET
+        </button>
+        <button onClick={() => setPhase("idle")}
+          style={{ background: "none", border: `1px solid ${S.borderColor}`, color: S.textDim, ...mono,
+            fontSize: 9, padding: "6px 12px", cursor: "pointer" }}>
+          CANCEL
+        </button>
+      </div>
+    </div>
+  );
+
+  if (phase === "signing") return (
+    <div style={{ ...mono, fontSize: 9, color: S.textDim }}>Waiting for wallet signature...</div>
+  );
+
+  if (phase === "done") return (
+    <div style={{ ...mono, fontSize: 9, color: S.accentGreen, lineHeight: 1.6 }}>
+      ✓ Auth wallet migrated. Your new wallet is now the sign-in identity.<br/>
+      <span style={{ color: S.textDim }}>No data was lost — all wallets and trades remain intact.</span>
+    </div>
+  );
+
+  return (
+    <div style={{ ...mono, fontSize: 9, color: S.accentRed }}>
+      Error: {errMsg}
+      <button onClick={() => setPhase("idle")} style={{ background: "none", border: "none", color: S.textDim, cursor: "pointer", marginLeft: 8, fontSize: 9 }}>retry</button>
+    </div>
+  );
+}
+
 function SettingsPanel({ S, setSetting, setS }) {
   const orb = { fontFamily: "'Orbitron',monospace" };
   const mono = { fontFamily: "'DM Mono',monospace" };
@@ -4463,6 +4559,14 @@ function SettingsPanel({ S, setSetting, setS }) {
                 {S.privacyMode ? "ON" : "OFF"}
               </span>
             </label>
+          </div>
+
+          <div style={{ marginBottom: 12 }}>
+            {fieldLabel("AUTH WALLET")}
+            <div style={{ color: S.textDim, fontSize: 9, fontFamily: "'DM Mono',monospace", marginBottom: 8 }}>
+              Switch to a different wallet for signing in. Your data carries over automatically.
+            </div>
+            <MigrateWalletButton S={S} workerUrl={S.workerUrl} />
           </div>
 
           <div style={{ marginBottom: 12 }}>
