@@ -2485,12 +2485,13 @@ function Onboarding({ S, onComplete }) {
 
         {/* Privacy notice */}
         <div style={{ marginBottom: 28, padding: "12px 14px", border: "1px solid #1a3a1a", background: "#0a1a0a" }}>
-          <div style={{ ...mono, fontSize: 10, color: green, letterSpacing: ".08em", marginBottom: 8 }}>🔒 КОНФИДЕНЦИАЛЬНОСТЬ</div>
+          <div style={{ ...mono, fontSize: 10, color: green, letterSpacing: ".08em", marginBottom: 8 }}>🔒 PRIVACY</div>
           <div style={{ ...mono, fontSize: 10, color: "#919191", lineHeight: 1.8 }}>
-            <div>· Твои кошельки <span style={{ color: "#fff" }}>никогда не хранятся</span> в базе данных в открытом виде — только криптографический хэш.</div>
-            <div>· Ключ Helius зашифрован на сервере — <span style={{ color: "#fff" }}>никто не может его прочитать</span>, включая администратора.</div>
-            <div>· Администратор видит только <span style={{ color: "#fff" }}>общее количество</span> кошельков и сделок — без адресов и данных.</div>
-            <div>· Вход через подпись кошелька — <span style={{ color: "#fff" }}>без пароля и email</span>, транзакция не создаётся.</div>
+            <div>· Your wallets are <span style={{ color: "#fff" }}>never stored as plain addresses</span> — only a cryptographic hash.</div>
+            <div>· Your Helius key is <span style={{ color: "#fff" }}>encrypted server-side</span> — nobody can read it, including the admin.</div>
+            <div>· Admin can only see <span style={{ color: "#fff" }}>total counts</span> — no addresses, no trade data.</div>
+            <div>· Sign in via wallet signature — <span style={{ color: "#fff" }}>no password, no email</span>, no transaction is created.</div>
+            <div>· The signature <span style={{ color: "#fff" }}>proves you own the wallet</span> but gives nobody access to it — like showing an ID: confirms identity, transfers nothing.</div>
           </div>
         </div>
 
