@@ -1128,15 +1128,18 @@ function CalendarHeatmap({ trades, tf, tzOffset = 0, S, onDayClick }) {
                     return (
                       <div key={di} style={{
                         width: CELL, height: CELL,
-                        background: day.inYear ? dayColor(day.date) : "transparent",
+                        background: day.inYear
+                          ? isBest  ? accentBest
+                          : isWorst ? S.accentRed
+                          : dayColor(day.date)
+                          : "transparent",
                         border: day.inYear
-                          ? isBest  ? `1.5px solid ${accentBest}`
-                          : isWorst ? `1.5px solid ${S.accentRed}`
-                          : `1px solid ${hasData ? "transparent" : S.borderColor}`
+                          ? `1px solid ${hasData && !isBest && !isWorst ? "transparent" : isBest ? accentBest : isWorst ? S.accentRed : S.borderColor}`
                           : "none",
-                        boxShadow: isHov   ? `0 0 0 1px ${S.accentGreen}`
-                          : isBest  ? `0 0 4px ${accentBest}88`
-                          : isWorst ? `0 0 4px ${S.accentRed}88`
+                        boxShadow: isHov
+                          ? `0 0 0 1px ${S.accentGreen}`
+                          : isBest  ? `0 0 5px ${accentBest}99`
+                          : isWorst ? `0 0 5px ${S.accentRed}99`
                           : day.inYear && hasData ? dayGlow(day.date) : "none",
                         cursor: hasData && onDayClick ? "pointer" : "default",
                         transition: "box-shadow .1s",
@@ -1578,6 +1581,7 @@ function ArchiveSection({ wallets, rowProps, border, dim, mono, S }) {
 
 
 // ── WALLET KANBAN ──────────────────────────────────────────────────────────────
+// Uses dataTransfer for drag data (not React state) to avoid re-render killing drag
 function WalletKanban({ wallets, S, setSetting, onClose }) {
   const presets      = S.walletPresets ?? [];
   const walletColors = S.walletColors  ?? [];
@@ -1586,21 +1590,56 @@ function WalletKanban({ wallets, S, setSetting, onClose }) {
   const dim   = S.textDim;
   const border = S.borderColor;
 
-  // Local copy of presets so changes are applied on Save
-  const [cols, setCols] = useState(() =>
-    presets.map(p => ({ ...p, walletIds: [...p.walletIds] }))
-  );
-  const [newColName, setNewColName]   = useState("");
-  const [showNewCol, setShowNewCol]   = useState(false);
-  const [dragging, setDragging]       = useState(null); // { walletId, fromColId } | null
-  const [dragOver, setDragOver]       = useState(null); // colId | "palette"
-  const columnsRef = useRef(null);
+  const [cols, setCols]         = useState(() => presets.map(p => ({ ...p, walletIds: [...p.walletIds] })));
+  const [dragOver, setDragOver] = useState(null); // colId | "palette" | null
+  const [newColName, setNewColName] = useState("");
+  const [showNewCol, setShowNewCol] = useState(false);
+  const [hovPill, setHovPill]   = useState(null); // "colId:walletId"
 
   const getColor  = (w) => walletColors[w.colorIdx % walletColors.length] ?? green;
   const getWallet = (id) => wallets.find(w => w.id === id);
-
-  // Wallets not in ANY column = palette candidates (all wallets are always in palette)
   const paletteWallets = wallets.filter(w => !w.archived);
+
+  // Encode drag payload in dataTransfer — avoids React re-render killing drag
+  const DRAG_KEY = "application/x-soltrack-pill";
+
+  const handleDragStart = (e, walletId, fromColId) => {
+    e.dataTransfer.effectAllowed = "move";
+    e.dataTransfer.setData(DRAG_KEY, JSON.stringify({ walletId, fromColId: fromColId ?? null }));
+  };
+
+  const getDragPayload = (e) => {
+    try { return JSON.parse(e.dataTransfer.getData(DRAG_KEY)); } catch { return null; }
+  };
+
+  const handleDropOnCol = (e, toColId) => {
+    e.preventDefault();
+    const p = getDragPayload(e);
+    if (!p) return;
+    setCols(prev => prev.map(c => {
+      if (p.fromColId !== null && c.id === p.fromColId && p.fromColId !== toColId)
+        return { ...c, walletIds: c.walletIds.filter(id => id !== p.walletId) };
+      if (c.id === toColId)
+        return c.walletIds.includes(p.walletId) ? c : { ...c, walletIds: [...c.walletIds, p.walletId] };
+      return c;
+    }));
+    setDragOver(null);
+  };
+
+  const handleDropOnPalette = (e) => {
+    e.preventDefault();
+    const p = getDragPayload(e);
+    if (!p || p.fromColId === null) { setDragOver(null); return; }
+    setCols(prev => prev.map(c =>
+      c.id === p.fromColId ? { ...c, walletIds: c.walletIds.filter(id => id !== p.walletId) } : c
+    ));
+    setDragOver(null);
+  };
+
+  const removeFromCol = (colId, walletId) =>
+    setCols(p => p.map(c => c.id === colId ? { ...c, walletIds: c.walletIds.filter(id => id !== walletId) } : c));
+
+  const deleteCol = (colId) => setCols(p => p.filter(c => c.id !== colId));
 
   const addCol = () => {
     if (!newColName.trim()) return;
@@ -1608,64 +1647,7 @@ function WalletKanban({ wallets, S, setSetting, onClose }) {
     setNewColName(""); setShowNewCol(false);
   };
 
-  const removeFromCol = (colId, walletId) => {
-    setCols(p => p.map(c => c.id === colId ? { ...c, walletIds: c.walletIds.filter(id => id !== walletId) } : c));
-  };
-
-  // Drag handlers
-  const onDragStart = (walletId, fromColId) => {
-    setDragging({ walletId, fromColId });
-  };
-
-  const onDrop = (toColId) => {
-    if (!dragging) return;
-    const { walletId, fromColId } = dragging;
-    setCols(prev => prev.map(c => {
-      if (c.id === fromColId && toColId !== fromColId) {
-        // Remove from source col
-        return { ...c, walletIds: c.walletIds.filter(id => id !== walletId) };
-      }
-      if (c.id === toColId) {
-        // Add to target col (no duplicates)
-        if (c.walletIds.includes(walletId)) return c;
-        return { ...c, walletIds: [...c.walletIds, walletId] };
-      }
-      return c;
-    }));
-    setDragging(null); setDragOver(null);
-  };
-
-  const onDropPalette = () => {
-    // Dropping on palette = remove from source col
-    if (!dragging?.fromColId) { setDragging(null); setDragOver(null); return; }
-    const { walletId, fromColId } = dragging;
-    setCols(p => p.map(c => c.id === fromColId
-      ? { ...c, walletIds: c.walletIds.filter(id => id !== walletId) }
-      : c
-    ));
-    setDragging(null); setDragOver(null);
-  };
-
-  const onDropFromPalette = (toColId) => {
-    if (!dragging) return;
-    const { walletId } = dragging;
-    setCols(prev => prev.map(c => {
-      if (c.id === toColId) {
-        if (c.walletIds.includes(walletId)) return c;
-        return { ...c, walletIds: [...c.walletIds, walletId] };
-      }
-      return c;
-    }));
-    setDragging(null); setDragOver(null);
-  };
-
-  const handleDrop = (colId) => {
-    if (dragging?.fromColId === undefined) onDropFromPalette(colId);
-    else onDrop(colId);
-  };
-
   const save = () => {
-    // Merge back into walletPresets, preserving IDs
     const updated = cols.map(c => {
       const orig = presets.find(p => p.id === c.id);
       return orig ? { ...orig, walletIds: c.walletIds } : { id: c.id, name: c.name, walletIds: c.walletIds };
@@ -1674,95 +1656,14 @@ function WalletKanban({ wallets, S, setSetting, onClose }) {
     onClose();
   };
 
-  // Pill component
-  const Pill = ({ walletId, colId, fromPalette = false }) => {
-    const w = getWallet(walletId);
-    if (!w) return null;
-    const color = getColor(w);
-    const [hov, setHov] = useState(false);
-    return (
-      <div
-        draggable
-        onDragStart={() => onDragStart(walletId, fromPalette ? undefined : colId)}
-        onMouseEnter={() => setHov(true)}
-        onMouseLeave={() => setHov(false)}
-        style={{
-          position: "relative", display: "inline-flex", alignItems: "center",
-          padding: "4px 10px", borderRadius: 3, margin: "2px 3px",
-          background: color + "22", border: `1px solid ${color}55`,
-          cursor: "grab", userSelect: "none",
-          opacity: dragging?.walletId === walletId && dragging?.fromColId === colId ? 0.4 : 1,
-          transition: "opacity .15s",
-        }}>
-        <span style={{ ...mono, fontSize: 10, color, fontWeight: 600 }}>
-          {w.label || w.address.slice(0, 6) + "…"}
-        </span>
-        {!fromPalette && hov && (
-          <button
-            onClick={e => { e.stopPropagation(); removeFromCol(colId, walletId); }}
-            onMouseDown={e => e.stopPropagation()}
-            style={{
-              position: "absolute", top: -5, right: -5,
-              width: 14, height: 14, borderRadius: "50%",
-              background: S.accentRed, border: "none",
-              color: "#fff", fontSize: 8, cursor: "pointer",
-              display: "flex", alignItems: "center", justifyContent: "center",
-              lineHeight: 1, padding: 0,
-            }}>×</button>
-        )}
-      </div>
-    );
-  };
-
-  // Column component
-  const Column = ({ col }) => {
-    const isOver = dragOver === col.id;
-    const scrollRef = useRef(null);
-    return (
-      <div
-        onDragOver={e => { e.preventDefault(); setDragOver(col.id); }}
-        onDragLeave={() => setDragOver(null)}
-        onDrop={() => handleDrop(col.id)}
-        style={{
-          minWidth: 180, maxWidth: 180,
-          background: isOver ? `${green}0a` : S.bgCard,
-          border: `1px solid ${isOver ? green : border}`,
-          borderRadius: 4, display: "flex", flexDirection: "column",
-          transition: "border-color .15s, background .15s",
-          flexShrink: 0,
-        }}>
-        {/* Col header */}
-        <div style={{ padding: "8px 10px 6px", borderBottom: `1px solid ${border}`,
-          display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-          <span style={{ ...mono, fontSize: 9, color: green, letterSpacing: ".12em", fontWeight: 700 }}>
-            {col.name}
-          </span>
-          <span style={{ ...mono, fontSize: 8, color: dim }}>{col.walletIds.length}</span>
-        </div>
-        {/* Pills */}
-        <div ref={scrollRef} style={{ flex: 1, overflowY: "auto", padding: "8px 6px", minHeight: 60 }}>
-          {col.walletIds.map(id => <Pill key={id} walletId={id} colId={col.id} />)}
-          {col.walletIds.length === 0 && (
-            <div style={{ ...mono, fontSize: 8, color: dim, opacity: 0.4, padding: "4px 6px", fontStyle: "italic" }}>
-              drop here
-            </div>
-          )}
-        </div>
-      </div>
-    );
-  };
-
   return (
-    <div style={{
-      position: "fixed", inset: 0, zIndex: 9999,
-      background: "rgba(0,0,0,0.75)", backdropFilter: "blur(4px)",
-      display: "flex", flexDirection: "column",
-    }} onClick={e => e.target === e.currentTarget && onClose()}>
-      <div style={{
-        margin: "40px auto", width: "min(96vw, 1100px)", maxHeight: "80vh",
-        background: S.bgBase, border: `1px solid ${border}`,
-        display: "flex", flexDirection: "column", borderRadius: 4, overflow: "hidden",
-      }}>
+    <div style={{ position: "fixed", inset: 0, zIndex: 9999, background: "rgba(0,0,0,0.75)",
+      backdropFilter: "blur(4px)", display: "flex", flexDirection: "column" }}
+      onClick={e => e.target === e.currentTarget && onClose()}>
+      <div style={{ margin: "40px auto", width: "min(96vw, 1100px)", maxHeight: "80vh",
+        background: S.bgBase, border: `1px solid ${border}`, display: "flex",
+        flexDirection: "column", overflow: "hidden" }}>
+
         {/* Title bar */}
         <div style={{ padding: "12px 16px", borderBottom: `1px solid ${border}`,
           display: "flex", alignItems: "center", justifyContent: "space-between", flexShrink: 0 }}>
@@ -1770,73 +1671,142 @@ function WalletKanban({ wallets, S, setSetting, onClose }) {
             WALLET ORGANIZER
           </span>
           <div style={{ display: "flex", gap: 8 }}>
-            <button onClick={save}
-              style={{ ...mono, background: green, border: "none", color: "#000",
-                fontSize: 9, padding: "5px 16px", cursor: "pointer", fontWeight: 700, letterSpacing: ".1em" }}>
+            <button onClick={save} style={{ ...mono, background: green, border: "none", color: "#000",
+              fontSize: 9, padding: "5px 16px", cursor: "pointer", fontWeight: 700, letterSpacing: ".1em" }}>
               SAVE
             </button>
-            <button onClick={onClose}
-              style={{ ...mono, background: "none", border: `1px solid ${border}`, color: dim,
-                fontSize: 9, padding: "5px 12px", cursor: "pointer" }}>
+            <button onClick={onClose} style={{ ...mono, background: "none", border: `1px solid ${border}`,
+              color: dim, fontSize: 9, padding: "5px 12px", cursor: "pointer" }}>
               CANCEL
             </button>
           </div>
         </div>
 
         {/* Palette strip */}
-        <div
-          onDragOver={e => { e.preventDefault(); setDragOver("palette"); }}
-          onDragLeave={() => setDragOver(null)}
-          onDrop={onDropPalette}
-          style={{
-            padding: "8px 12px", borderBottom: `1px solid ${border}`, flexShrink: 0,
-            background: dragOver === "palette" ? `${S.accentRed}0a` : "transparent",
-            transition: "background .15s",
-          }}>
+        <div onDragOver={e => { e.preventDefault(); setDragOver("palette"); }}
+          onDragLeave={e => { if (!e.currentTarget.contains(e.relatedTarget)) setDragOver(null); }}
+          onDrop={handleDropOnPalette}
+          style={{ padding: "8px 12px", borderBottom: `1px solid ${border}`, flexShrink: 0,
+            background: dragOver === "palette" ? `${S.accentRed}12` : "transparent", transition: "background .15s" }}>
           <div style={{ ...mono, fontSize: 7, color: dim, letterSpacing: ".12em", marginBottom: 6 }}>
-            PALETTE — drag from here to add · drag here to remove
+            PALETTE — drag to a preset column to add · drag back here to remove
           </div>
-          <div style={{ display: "flex", flexWrap: "wrap", gap: 0 }}>
-            {paletteWallets.map(w => (
-              <Pill key={w.id} walletId={w.id} colId={null} fromPalette={true} />
-            ))}
+          <div style={{ display: "flex", flexWrap: "wrap" }}>
+            {paletteWallets.map(w => {
+              const color = getColor(w);
+              const key = `palette:${w.id}`;
+              const isHov = hovPill === key;
+              return (
+                <div key={w.id} draggable
+                  onDragStart={e => handleDragStart(e, w.id, null)}
+                  onMouseEnter={() => setHovPill(key)}
+                  onMouseLeave={() => setHovPill(null)}
+                  style={{ display: "inline-flex", alignItems: "center", padding: "4px 10px",
+                    margin: "2px 3px", background: color + "22", border: `1px solid ${color}55`,
+                    cursor: "grab", userSelect: "none", position: "relative" }}>
+                  <span style={{ ...mono, fontSize: 10, color, fontWeight: 600 }}>
+                    {w.label || w.address.slice(0,6) + "…"}
+                  </span>
+                </div>
+              );
+            })}
             {paletteWallets.length === 0 && (
-              <span style={{ ...mono, fontSize: 9, color: dim, opacity: 0.5 }}>No wallets added yet</span>
+              <span style={{ ...mono, fontSize: 9, color: dim, opacity: 0.5 }}>No wallets yet</span>
             )}
           </div>
         </div>
 
-        {/* Columns area */}
-        <div ref={columnsRef} style={{
-          flex: 1, overflowX: "auto", overflowY: "hidden",
-          display: "flex", gap: 10, padding: "14px 14px",
-          alignItems: "flex-start",
-        }}>
-          {cols.map(col => <Column key={col.id} col={col} />)}
+        {/* Columns */}
+        <div style={{ flex: 1, overflowX: "auto", overflowY: "hidden",
+          display: "flex", gap: 10, padding: "14px", alignItems: "flex-start" }}>
+          {cols.map(col => {
+            const isOver = dragOver === col.id;
+            return (
+              <div key={col.id}
+                onDragOver={e => { e.preventDefault(); setDragOver(col.id); }}
+                onDragLeave={e => { if (!e.currentTarget.contains(e.relatedTarget)) setDragOver(null); }}
+                onDrop={e => handleDropOnCol(e, col.id)}
+                style={{ minWidth: 180, maxWidth: 180, background: isOver ? `${green}0a` : S.bgCard,
+                  border: `1px solid ${isOver ? green : border}`, flexShrink: 0,
+                  display: "flex", flexDirection: "column", transition: "border-color .15s, background .15s" }}>
+                {/* Col header */}
+                <div style={{ padding: "7px 8px 6px", borderBottom: `1px solid ${border}`,
+                  display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                  <span style={{ ...mono, fontSize: 9, color: green, letterSpacing: ".12em", fontWeight: 700 }}>
+                    {col.name}
+                  </span>
+                  <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
+                    <span style={{ ...mono, fontSize: 8, color: dim }}>{col.walletIds.length}</span>
+                    <button onClick={() => deleteCol(col.id)}
+                      title="Delete preset"
+                      style={{ background: "none", border: "none", color: dim, cursor: "pointer",
+                        fontSize: 10, padding: "0 2px", lineHeight: 1, opacity: 0.5 }}
+                      onMouseEnter={e => { e.currentTarget.style.color = S.accentRed; e.currentTarget.style.opacity = "1"; }}
+                      onMouseLeave={e => { e.currentTarget.style.color = dim; e.currentTarget.style.opacity = "0.5"; }}>
+                      ✕
+                    </button>
+                  </div>
+                </div>
+                {/* Pills */}
+                <div style={{ flex: 1, overflowY: "auto", padding: "8px 6px", minHeight: 80 }}>
+                  {col.walletIds.map(id => {
+                    const w = getWallet(id);
+                    if (!w) return null;
+                    const color = getColor(w);
+                    const key = `${col.id}:${id}`;
+                    const isHov = hovPill === key;
+                    return (
+                      <div key={id} draggable
+                        onDragStart={e => handleDragStart(e, id, col.id)}
+                        onMouseEnter={() => setHovPill(key)}
+                        onMouseLeave={() => setHovPill(null)}
+                        style={{ display: "inline-flex", alignItems: "center", padding: "4px 10px",
+                          margin: "2px 3px", background: color + "22", border: `1px solid ${color}55`,
+                          cursor: "grab", userSelect: "none", position: "relative" }}>
+                        <span style={{ ...mono, fontSize: 10, color, fontWeight: 600 }}>
+                          {w.label || w.address.slice(0,6) + "…"}
+                        </span>
+                        {isHov && (
+                          <button onMouseDown={e => e.stopPropagation()}
+                            onClick={e => { e.stopPropagation(); removeFromCol(col.id, id); }}
+                            style={{ position: "absolute", top: -5, right: -5, width: 14, height: 14,
+                              borderRadius: "50%", background: S.accentRed, border: "none",
+                              color: "#fff", fontSize: 8, cursor: "pointer", display: "flex",
+                              alignItems: "center", justifyContent: "center", padding: 0 }}>×</button>
+                        )}
+                      </div>
+                    );
+                  })}
+                  {col.walletIds.length === 0 && (
+                    <div style={{ ...mono, fontSize: 8, color: dim, opacity: 0.4, padding: "6px",
+                      fontStyle: "italic", pointerEvents: "none" }}>drop here</div>
+                  )}
+                </div>
+              </div>
+            );
+          })}
 
-          {/* Add new column */}
+          {/* Add column */}
           {showNewCol ? (
-            <div style={{ minWidth: 180, border: `1px dashed ${green}55`, borderRadius: 4,
-              padding: "12px 10px", display: "flex", flexDirection: "column", gap: 8, flexShrink: 0 }}>
-              <input autoFocus value={newColName} onChange={e => setNewColName(e.target.value.toUpperCase())}
+            <div style={{ minWidth: 180, border: `1px dashed ${green}55`, padding: "12px 10px",
+              display: "flex", flexDirection: "column", gap: 8, flexShrink: 0 }}>
+              <input autoFocus value={newColName}
+                onChange={e => setNewColName(e.target.value.toUpperCase())}
                 onKeyDown={e => { if (e.key === "Enter") addCol(); if (e.key === "Escape") setShowNewCol(false); }}
                 placeholder="PRESET NAME"
                 style={{ ...mono, background: "none", border: `1px solid ${border}`, color: "#fff",
                   fontSize: 10, padding: "6px 8px", outline: "none", letterSpacing: ".08em" }} />
               <div style={{ display: "flex", gap: 6 }}>
-                <button onClick={addCol}
-                  style={{ ...mono, background: green, border: "none", color: "#000",
-                    fontSize: 8, padding: "4px 10px", cursor: "pointer", fontWeight: 700 }}>ADD</button>
-                <button onClick={() => setShowNewCol(false)}
-                  style={{ ...mono, background: "none", border: `1px solid ${border}`, color: dim,
-                    fontSize: 8, padding: "4px 8px", cursor: "pointer" }}>✕</button>
+                <button onClick={addCol} style={{ ...mono, background: green, border: "none",
+                  color: "#000", fontSize: 8, padding: "4px 10px", cursor: "pointer", fontWeight: 700 }}>ADD</button>
+                <button onClick={() => setShowNewCol(false)} style={{ ...mono, background: "none",
+                  border: `1px solid ${border}`, color: dim, fontSize: 8, padding: "4px 8px", cursor: "pointer" }}>✕</button>
               </div>
             </div>
           ) : (
             <div onClick={() => setShowNewCol(true)}
-              style={{ minWidth: 180, height: 80, border: `1px dashed ${border}`,
-                borderRadius: 4, display: "flex", alignItems: "center", justifyContent: "center",
-                cursor: "pointer", flexShrink: 0, transition: "border-color .15s" }}
+              style={{ minWidth: 180, height: 80, border: `1px dashed ${border}`, flexShrink: 0,
+                display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer" }}
               onMouseEnter={e => e.currentTarget.style.borderColor = green}
               onMouseLeave={e => e.currentTarget.style.borderColor = border}>
               <span style={{ ...mono, fontSize: 9, color: dim }}>+ NEW PRESET</span>
@@ -1847,7 +1817,6 @@ function WalletKanban({ wallets, S, setSetting, onClose }) {
     </div>
   );
 }
-
 
 function WalletSidebar({
   wallets, activeWallets, setActiveWallets, toggleWallet,
