@@ -1120,14 +1120,24 @@ function CalendarHeatmap({ trades, tf, tzOffset = 0, S, onDayClick }) {
               {weeks.map((week, wi) => (
                 <div key={wi} style={{ display: "flex", flexDirection: "column", gap: GAP }}>
                   {week.map((day, di) => {
-                    const hasData = dayMap[day.date];
-                    const isHov = hovDay === day.date;
+                    const hasData  = dayMap[day.date];
+                    const isHov    = hovDay === day.date;
+                    const isBest   = yearStats.bestDay?.date  === day.date;
+                    const isWorst  = yearStats.worstDay?.date === day.date;
+                    const accentBest = S.accentBest ?? "#ffd700";
                     return (
                       <div key={di} style={{
                         width: CELL, height: CELL,
                         background: day.inYear ? dayColor(day.date) : "transparent",
-                        border: day.inYear ? `1px solid ${hasData ? "transparent" : S.borderColor}` : "none",
-                        boxShadow: isHov ? `0 0 0 1px ${S.accentGreen}` : day.inYear && hasData ? dayGlow(day.date) : "none",
+                        border: day.inYear
+                          ? isBest  ? `1.5px solid ${accentBest}`
+                          : isWorst ? `1.5px solid ${S.accentRed}`
+                          : `1px solid ${hasData ? "transparent" : S.borderColor}`
+                          : "none",
+                        boxShadow: isHov   ? `0 0 0 1px ${S.accentGreen}`
+                          : isBest  ? `0 0 4px ${accentBest}88`
+                          : isWorst ? `0 0 4px ${S.accentRed}88`
+                          : day.inYear && hasData ? dayGlow(day.date) : "none",
                         cursor: hasData && onDayClick ? "pointer" : "default",
                         transition: "box-shadow .1s",
                       }}
@@ -1566,6 +1576,279 @@ function ArchiveSection({ wallets, rowProps, border, dim, mono, S }) {
   );
 }
 
+
+// ── WALLET KANBAN ──────────────────────────────────────────────────────────────
+function WalletKanban({ wallets, S, setSetting, onClose }) {
+  const presets      = S.walletPresets ?? [];
+  const walletColors = S.walletColors  ?? [];
+  const mono  = { fontFamily: "'DM Mono',monospace" };
+  const green = S.accentGreen;
+  const dim   = S.textDim;
+  const border = S.borderColor;
+
+  // Local copy of presets so changes are applied on Save
+  const [cols, setCols] = useState(() =>
+    presets.map(p => ({ ...p, walletIds: [...p.walletIds] }))
+  );
+  const [newColName, setNewColName]   = useState("");
+  const [showNewCol, setShowNewCol]   = useState(false);
+  const [dragging, setDragging]       = useState(null); // { walletId, fromColId } | null
+  const [dragOver, setDragOver]       = useState(null); // colId | "palette"
+  const columnsRef = useRef(null);
+
+  const getColor  = (w) => walletColors[w.colorIdx % walletColors.length] ?? green;
+  const getWallet = (id) => wallets.find(w => w.id === id);
+
+  // Wallets not in ANY column = palette candidates (all wallets are always in palette)
+  const paletteWallets = wallets.filter(w => !w.archived);
+
+  const addCol = () => {
+    if (!newColName.trim()) return;
+    setCols(p => [...p, { id: Date.now(), name: newColName.trim().toUpperCase(), walletIds: [] }]);
+    setNewColName(""); setShowNewCol(false);
+  };
+
+  const removeFromCol = (colId, walletId) => {
+    setCols(p => p.map(c => c.id === colId ? { ...c, walletIds: c.walletIds.filter(id => id !== walletId) } : c));
+  };
+
+  // Drag handlers
+  const onDragStart = (walletId, fromColId) => {
+    setDragging({ walletId, fromColId });
+  };
+
+  const onDrop = (toColId) => {
+    if (!dragging) return;
+    const { walletId, fromColId } = dragging;
+    setCols(prev => prev.map(c => {
+      if (c.id === fromColId && toColId !== fromColId) {
+        // Remove from source col
+        return { ...c, walletIds: c.walletIds.filter(id => id !== walletId) };
+      }
+      if (c.id === toColId) {
+        // Add to target col (no duplicates)
+        if (c.walletIds.includes(walletId)) return c;
+        return { ...c, walletIds: [...c.walletIds, walletId] };
+      }
+      return c;
+    }));
+    setDragging(null); setDragOver(null);
+  };
+
+  const onDropPalette = () => {
+    // Dropping on palette = remove from source col
+    if (!dragging?.fromColId) { setDragging(null); setDragOver(null); return; }
+    const { walletId, fromColId } = dragging;
+    setCols(p => p.map(c => c.id === fromColId
+      ? { ...c, walletIds: c.walletIds.filter(id => id !== walletId) }
+      : c
+    ));
+    setDragging(null); setDragOver(null);
+  };
+
+  const onDropFromPalette = (toColId) => {
+    if (!dragging) return;
+    const { walletId } = dragging;
+    setCols(prev => prev.map(c => {
+      if (c.id === toColId) {
+        if (c.walletIds.includes(walletId)) return c;
+        return { ...c, walletIds: [...c.walletIds, walletId] };
+      }
+      return c;
+    }));
+    setDragging(null); setDragOver(null);
+  };
+
+  const handleDrop = (colId) => {
+    if (dragging?.fromColId === undefined) onDropFromPalette(colId);
+    else onDrop(colId);
+  };
+
+  const save = () => {
+    // Merge back into walletPresets, preserving IDs
+    const updated = cols.map(c => {
+      const orig = presets.find(p => p.id === c.id);
+      return orig ? { ...orig, walletIds: c.walletIds } : { id: c.id, name: c.name, walletIds: c.walletIds };
+    });
+    setSetting("walletPresets", updated);
+    onClose();
+  };
+
+  // Pill component
+  const Pill = ({ walletId, colId, fromPalette = false }) => {
+    const w = getWallet(walletId);
+    if (!w) return null;
+    const color = getColor(w);
+    const [hov, setHov] = useState(false);
+    return (
+      <div
+        draggable
+        onDragStart={() => onDragStart(walletId, fromPalette ? undefined : colId)}
+        onMouseEnter={() => setHov(true)}
+        onMouseLeave={() => setHov(false)}
+        style={{
+          position: "relative", display: "inline-flex", alignItems: "center",
+          padding: "4px 10px", borderRadius: 3, margin: "2px 3px",
+          background: color + "22", border: `1px solid ${color}55`,
+          cursor: "grab", userSelect: "none",
+          opacity: dragging?.walletId === walletId && dragging?.fromColId === colId ? 0.4 : 1,
+          transition: "opacity .15s",
+        }}>
+        <span style={{ ...mono, fontSize: 10, color, fontWeight: 600 }}>
+          {w.label || w.address.slice(0, 6) + "…"}
+        </span>
+        {!fromPalette && hov && (
+          <button
+            onClick={e => { e.stopPropagation(); removeFromCol(colId, walletId); }}
+            onMouseDown={e => e.stopPropagation()}
+            style={{
+              position: "absolute", top: -5, right: -5,
+              width: 14, height: 14, borderRadius: "50%",
+              background: S.accentRed, border: "none",
+              color: "#fff", fontSize: 8, cursor: "pointer",
+              display: "flex", alignItems: "center", justifyContent: "center",
+              lineHeight: 1, padding: 0,
+            }}>×</button>
+        )}
+      </div>
+    );
+  };
+
+  // Column component
+  const Column = ({ col }) => {
+    const isOver = dragOver === col.id;
+    const scrollRef = useRef(null);
+    return (
+      <div
+        onDragOver={e => { e.preventDefault(); setDragOver(col.id); }}
+        onDragLeave={() => setDragOver(null)}
+        onDrop={() => handleDrop(col.id)}
+        style={{
+          minWidth: 180, maxWidth: 180,
+          background: isOver ? `${green}0a` : S.bgCard,
+          border: `1px solid ${isOver ? green : border}`,
+          borderRadius: 4, display: "flex", flexDirection: "column",
+          transition: "border-color .15s, background .15s",
+          flexShrink: 0,
+        }}>
+        {/* Col header */}
+        <div style={{ padding: "8px 10px 6px", borderBottom: `1px solid ${border}`,
+          display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+          <span style={{ ...mono, fontSize: 9, color: green, letterSpacing: ".12em", fontWeight: 700 }}>
+            {col.name}
+          </span>
+          <span style={{ ...mono, fontSize: 8, color: dim }}>{col.walletIds.length}</span>
+        </div>
+        {/* Pills */}
+        <div ref={scrollRef} style={{ flex: 1, overflowY: "auto", padding: "8px 6px", minHeight: 60 }}>
+          {col.walletIds.map(id => <Pill key={id} walletId={id} colId={col.id} />)}
+          {col.walletIds.length === 0 && (
+            <div style={{ ...mono, fontSize: 8, color: dim, opacity: 0.4, padding: "4px 6px", fontStyle: "italic" }}>
+              drop here
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  };
+
+  return (
+    <div style={{
+      position: "fixed", inset: 0, zIndex: 9999,
+      background: "rgba(0,0,0,0.75)", backdropFilter: "blur(4px)",
+      display: "flex", flexDirection: "column",
+    }} onClick={e => e.target === e.currentTarget && onClose()}>
+      <div style={{
+        margin: "40px auto", width: "min(96vw, 1100px)", maxHeight: "80vh",
+        background: S.bgBase, border: `1px solid ${border}`,
+        display: "flex", flexDirection: "column", borderRadius: 4, overflow: "hidden",
+      }}>
+        {/* Title bar */}
+        <div style={{ padding: "12px 16px", borderBottom: `1px solid ${border}`,
+          display: "flex", alignItems: "center", justifyContent: "space-between", flexShrink: 0 }}>
+          <span style={{ fontFamily: "'Orbitron',monospace", fontSize: 11, color: "#fff", letterSpacing: ".15em" }}>
+            WALLET ORGANIZER
+          </span>
+          <div style={{ display: "flex", gap: 8 }}>
+            <button onClick={save}
+              style={{ ...mono, background: green, border: "none", color: "#000",
+                fontSize: 9, padding: "5px 16px", cursor: "pointer", fontWeight: 700, letterSpacing: ".1em" }}>
+              SAVE
+            </button>
+            <button onClick={onClose}
+              style={{ ...mono, background: "none", border: `1px solid ${border}`, color: dim,
+                fontSize: 9, padding: "5px 12px", cursor: "pointer" }}>
+              CANCEL
+            </button>
+          </div>
+        </div>
+
+        {/* Palette strip */}
+        <div
+          onDragOver={e => { e.preventDefault(); setDragOver("palette"); }}
+          onDragLeave={() => setDragOver(null)}
+          onDrop={onDropPalette}
+          style={{
+            padding: "8px 12px", borderBottom: `1px solid ${border}`, flexShrink: 0,
+            background: dragOver === "palette" ? `${S.accentRed}0a` : "transparent",
+            transition: "background .15s",
+          }}>
+          <div style={{ ...mono, fontSize: 7, color: dim, letterSpacing: ".12em", marginBottom: 6 }}>
+            PALETTE — drag from here to add · drag here to remove
+          </div>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 0 }}>
+            {paletteWallets.map(w => (
+              <Pill key={w.id} walletId={w.id} colId={null} fromPalette={true} />
+            ))}
+            {paletteWallets.length === 0 && (
+              <span style={{ ...mono, fontSize: 9, color: dim, opacity: 0.5 }}>No wallets added yet</span>
+            )}
+          </div>
+        </div>
+
+        {/* Columns area */}
+        <div ref={columnsRef} style={{
+          flex: 1, overflowX: "auto", overflowY: "hidden",
+          display: "flex", gap: 10, padding: "14px 14px",
+          alignItems: "flex-start",
+        }}>
+          {cols.map(col => <Column key={col.id} col={col} />)}
+
+          {/* Add new column */}
+          {showNewCol ? (
+            <div style={{ minWidth: 180, border: `1px dashed ${green}55`, borderRadius: 4,
+              padding: "12px 10px", display: "flex", flexDirection: "column", gap: 8, flexShrink: 0 }}>
+              <input autoFocus value={newColName} onChange={e => setNewColName(e.target.value.toUpperCase())}
+                onKeyDown={e => { if (e.key === "Enter") addCol(); if (e.key === "Escape") setShowNewCol(false); }}
+                placeholder="PRESET NAME"
+                style={{ ...mono, background: "none", border: `1px solid ${border}`, color: "#fff",
+                  fontSize: 10, padding: "6px 8px", outline: "none", letterSpacing: ".08em" }} />
+              <div style={{ display: "flex", gap: 6 }}>
+                <button onClick={addCol}
+                  style={{ ...mono, background: green, border: "none", color: "#000",
+                    fontSize: 8, padding: "4px 10px", cursor: "pointer", fontWeight: 700 }}>ADD</button>
+                <button onClick={() => setShowNewCol(false)}
+                  style={{ ...mono, background: "none", border: `1px solid ${border}`, color: dim,
+                    fontSize: 8, padding: "4px 8px", cursor: "pointer" }}>✕</button>
+              </div>
+            </div>
+          ) : (
+            <div onClick={() => setShowNewCol(true)}
+              style={{ minWidth: 180, height: 80, border: `1px dashed ${border}`,
+                borderRadius: 4, display: "flex", alignItems: "center", justifyContent: "center",
+                cursor: "pointer", flexShrink: 0, transition: "border-color .15s" }}
+              onMouseEnter={e => e.currentTarget.style.borderColor = green}
+              onMouseLeave={e => e.currentTarget.style.borderColor = border}>
+              <span style={{ ...mono, fontSize: 9, color: dim }}>+ NEW PRESET</span>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+
 function WalletSidebar({
   wallets, activeWallets, setActiveWallets, toggleWallet,
   syncStates, syncing, loading, errors,
@@ -1574,6 +1857,7 @@ function WalletSidebar({
   S, getColor, setSetting,
 }) {
   const [collapsed, setCollapsed] = useState(false);
+  const [showKanban, setShowKanban] = useState(false);
   const [newPresetName, setNewPresetName] = useState("");
   const [showPresetInput, setShowPresetInput] = useState(false);
   const [balances, setBalances] = useState({});
@@ -1687,11 +1971,24 @@ function WalletSidebar({
       {/* ── Header ── */}
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between",
         padding: "12px 12px 10px", borderBottom: `1px solid ${border}` }}>
-        <span className="ts-small" style={{ ...mono, fontSize: 8, letterSpacing: ".14em", color: dim }}>WALLETS</span>
+        <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+          <span className="ts-small" style={{ ...mono, fontSize: 8, letterSpacing: ".14em", color: dim }}>WALLETS</span>
+          <button onClick={() => setShowKanban(true)} title="Organize presets"
+            style={{ background: "none", border: `1px solid ${border}`, color: dim,
+              cursor: "pointer", fontSize: 8, padding: "2px 6px", ...mono, letterSpacing: ".06em",
+              lineHeight: 1.4, transition: "border-color .15s, color .15s" }}
+            onMouseEnter={e => { e.currentTarget.style.borderColor = green; e.currentTarget.style.color = green; }}
+            onMouseLeave={e => { e.currentTarget.style.borderColor = border; e.currentTarget.style.color = dim; }}>
+            ⊞
+          </button>
+        </div>
         <button onClick={() => setCollapsed(true)}
           style={{ background: "none", border: "none", color: dim, cursor: "pointer", fontSize: 11, lineHeight: 1, padding: 2 }}
           title="Collapse">◀</button>
       </div>
+      {showKanban && (
+        <WalletKanban wallets={wallets} S={S} setSetting={setSetting} onClose={() => setShowKanban(false)} />
+      )}
 
       {/* ── Presets (above wallet list) ── */}
         {presets.length > 0 && (
