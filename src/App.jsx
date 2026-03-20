@@ -2321,6 +2321,8 @@ function useWalletData(S, clientToken = "") {
         trades = trades.map(t => t.mint && TOKEN_SYMBOL_CACHE[t.mint] ? { ...t, token: TOKEN_SYMBOL_CACHE[t.mint] } : t);
       } else if (res.status === 403) {
         throw new Error("This wallet has been banned from SOLTRACK");
+      } else if (res.status === 401) {
+        throw new Error("SESSION_EXPIRED");
       } else {
         throw new Error(`Worker returned ${res.status}`);
       }
@@ -2393,9 +2395,9 @@ function useWalletData(S, clientToken = "") {
 }
 
 // ── ONBOARDING ────────────────────────────────────────────────────────────────
-function Onboarding({ S, onComplete }) {
-  const [workerUrl, setWorkerUrl] = useState(loadLS("soltrack_settings", {}).workerUrl || "");
-  const [step, setStep] = useState("worker"); // "worker" | "connect" | "helius" | "testing"
+function Onboarding({ S, workerUrl: workerUrlProp, onComplete }) {
+  const [workerUrl] = useState(workerUrlProp || "");
+  const [step, setStep] = useState("connect"); // "connect" | "helius"
   const [err, setErr] = useState("");
   const [connecting, setConnecting] = useState(false);
 
@@ -2413,7 +2415,9 @@ function Onboarding({ S, onComplete }) {
       const pubkeyBytes = provider.publicKey.toBytes();
       const pubkeyHex   = Array.from(pubkeyBytes).map(b => b.toString(16).padStart(2,"0")).join("");
 
-      const base = sanitizeWorkerUrl(workerUrl);
+      const effectiveUrl = workerUrl || localStorage.getItem("soltrack_worker_url_tmp") || "";
+      if (!effectiveUrl) throw new Error("Worker URL not set. Enter it above.");
+      const base = sanitizeWorkerUrl(effectiveUrl);
 
       // Get nonce
       const nonceRes = await fetch(`${base}/auth/nonce?pubkey=${pubkeyHex}`);
@@ -2441,7 +2445,7 @@ function Onboarding({ S, onComplete }) {
       const { hasKey } = await hasKeyRes.json();
 
       if (hasKey) {
-        onComplete(workerUrl, token);
+        onComplete(token);
       } else {
         setStep("helius");
       }
@@ -2456,7 +2460,8 @@ function Onboarding({ S, onComplete }) {
     if (!key.trim()) return;
     setConnecting(true); setErr("");
     try {
-      const base  = sanitizeWorkerUrl(workerUrl);
+      const effectiveUrl = workerUrl || localStorage.getItem("soltrack_worker_url_tmp") || "";
+      const base  = sanitizeWorkerUrl(effectiveUrl);
       const token = localStorage.getItem("soltrack_user_token");
       const res   = await fetch(`${base}/auth/setup-key`, {
         method: "POST",
@@ -2464,7 +2469,7 @@ function Onboarding({ S, onComplete }) {
         body: JSON.stringify({ heliusKey: key.trim() }),
       });
       if (!res.ok) throw new Error("Failed to save key: " + (await res.json()).error);
-      onComplete(workerUrl, token);
+      onComplete(token);
     } catch (e) {
       setErr(e.message);
     } finally {
@@ -2498,49 +2503,19 @@ function Onboarding({ S, onComplete }) {
           </div>
         </div>
 
-        {step === "worker" && (
-          <>
-            <div style={{ marginBottom: 28 }}>
-              <span style={{ ...mono, fontSize: 11, color: "#f2f2f2", letterSpacing: ".08em" }}>WORKER URL</span>
-              <p style={{ ...mono, fontSize: 10, color: "#919191", marginBottom: 12, marginTop: 8, lineHeight: 1.6 }}>
-                The Cloudflare Worker that powers SOLTRACK.<br/>
-                Get it from the person who shared this app with you.
-              </p>
-              <input className="inp" style={{ width: "100%", boxSizing: "border-box" }}
-                placeholder="https://soltrack.YOUR-NAME.workers.dev"
-                value={workerUrl}
-                onChange={e => setWorkerUrl(e.target.value)}
-                onKeyDown={e => e.key === "Enter" && workerUrl && setStep("connect")}
-              />
-            </div>
-
-            {/* Privacy guarantee */}
-            <div style={{ marginBottom: 24, padding: "14px 16px", border: "1px solid #1a2e1a", background: "#0a150a" }}>
-              <div style={{ ...mono, fontSize: 9, color: "#00ff91", letterSpacing: ".12em", marginBottom: 10 }}>YOUR PRIVACY</div>
-              {[
-                ["Wallet addresses", "stored as one-way hashes — raw addresses never touch the database"],
-                ["Helius API key", "encrypted with AES-256 server-side — never visible in network requests"],
-                ["Auth", "your Solana wallet signature — no password, no email"],
-                ["Admin access", "sees only total counts (wallets: N, trades: N) — no addresses, no history"],
-              ].map(([title, desc]) => (
-                <div key={title} style={{ display: "flex", gap: 8, marginBottom: 6 }}>
-                  <span style={{ color: "#00ff91", flexShrink: 0 }}>✓</span>
-                  <span style={{ ...mono, fontSize: 9, color: "#919191", lineHeight: 1.5 }}>
-                    <span style={{ color: "#c0c0c0" }}>{title}</span> — {desc}
-                  </span>
-                </div>
-              ))}
-            </div>
-
-            <button className="lbtn" style={{ "--accent": green, width: "100%", padding: "10px 0", fontSize: 11, letterSpacing: ".15em" }}
-              onClick={() => setStep("connect")} disabled={!workerUrl}>
-              CONTINUE →
-            </button>
-          </>
-        )}
-
         {step === "connect" && (
           <>
+            {!workerUrl && (
+              <div style={{ marginBottom: 20, padding: "10px 14px", border: "1px solid #333", background: "#111" }}>
+                <div style={{ ...mono, fontSize: 9, color: "#919191", marginBottom: 6 }}>WORKER URL</div>
+                <input className="inp" style={{ width: "100%", boxSizing: "border-box" }}
+                  placeholder="https://soltrack.YOUR-NAME.workers.dev"
+                  onBlur={e => { if (e.target.value) { localStorage.setItem("soltrack_worker_url_tmp", e.target.value); } }}
+                  onKeyDown={e => e.key === "Enter" && e.target.blur()}
+                />
+                <div style={{ ...mono, fontSize: 8, color: "#555", marginTop: 4 }}>Get this from the person who runs SOLTRACK</div>
+              </div>
+            )}
             <div style={{ marginBottom: 28 }}>
               <span style={{ ...mono, fontSize: 11, color: "#f2f2f2", letterSpacing: ".08em" }}>SIGN IN WITH WALLET</span>
               <p style={{ ...mono, fontSize: 10, color: "#919191", marginBottom: 12, marginTop: 8, lineHeight: 1.6 }}>
@@ -4735,6 +4710,7 @@ export default function App() {
   const [apiKeyInput, setAKI] = useState("");
 
   const { wallets, loading, errors, syncStates, syncing, addWallet, removeWallet, refreshWallet, syncHistory, updateWallet } = useWalletData(S, clientToken);
+  const sessionExpired = Object.values(errors).some(e => e === "SESSION_EXPIRED");
 
 
 
@@ -4902,9 +4878,8 @@ export default function App() {
 
   // ── ONBOARDING GATE ──────────────────────────────────────────────────────────
   const userToken = useMemo(() => localStorage.getItem("soltrack_user_token") ?? "", []);
-  if (!S.workerUrl || !userToken) {
-    return <Onboarding S={S} onComplete={(workerUrl, token) => {
-      setSetting("workerUrl", sanitizeWorkerUrl(workerUrl));
+  if (!userToken) {
+    return <Onboarding S={S} workerUrl={S.workerUrl} onComplete={(token) => {
       localStorage.setItem("soltrack_user_token", token);
       window.location.reload();
     }} />;
@@ -5076,6 +5051,19 @@ export default function App() {
         })()}
       </div>
 
+      {sessionExpired && (
+        <div style={{ background: "#1a0000", borderBottom: "1px solid #ff003355", padding: "10px 24px",
+          display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+          <span style={{ fontFamily: "'DM Mono',monospace", fontSize: 10, color: "#ff6666", letterSpacing: ".08em" }}>
+            ⚠ Your session has expired (24h limit). Sign out and sign back in to continue.
+          </span>
+          <button onClick={() => { localStorage.removeItem("soltrack_user_token"); window.location.reload(); }}
+            style={{ background: "#ff0033", border: "none", color: "#fff", fontFamily: "'DM Mono',monospace",
+              fontSize: 9, padding: "5px 14px", cursor: "pointer", letterSpacing: ".1em", fontWeight: 700 }}>
+            SIGN IN AGAIN
+          </button>
+        </div>
+      )}
       <div style={{ display: "flex", maxWidth: 1400, margin: "0 auto", alignItems: "stretch" }}>
 
         {/* WALLET SIDEBAR */}
