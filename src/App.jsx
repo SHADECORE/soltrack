@@ -187,6 +187,7 @@ async function fetchTrades(wallet, workerUrl, onProgress, signal, headers = {}) 
 const DEFAULT_SETTINGS = {
   appName: "SOLTRACK",
   accentGreen: "#00ff91",
+  accentBest:  "#ffd700",   // best day / best result highlight color
   accentRed: "#ff0000",
   accentFee: "#ff9900",
   accentPurple: "#cc16fe",
@@ -1089,7 +1090,7 @@ function CalendarHeatmap({ trades, tf, tzOffset = 0, S, onDayClick }) {
           { label: "ACTIVE DAYS", val: yearStats.tradeDays,  color: S.textPrimary },
           { label: "GREEN DAYS",  val: yearStats.winDays,    color: S.accentGreen },
           { label: "RED DAYS",    val: yearStats.lossDays,   color: S.accentRed },
-          { label: "BEST DAY",    val: yearStats.bestDay  ? "+" + fmtC(yearStats.bestDay.pnl, S)  : "—", color: S.accentGreen },
+          { label: "BEST DAY",    val: yearStats.bestDay  ? "+" + fmtC(yearStats.bestDay.pnl, S)  : "—", color: S.accentBest ?? "#ffd700" },
           { label: "WORST DAY",   val: yearStats.worstDay ? fmtC(yearStats.worstDay.pnl, S)      : "—", color: S.accentRed },
         ].map(s => (
           <BorderCard key={s.label} S={S} style={{ padding: "11px 14px" }}>
@@ -4336,6 +4337,7 @@ function SettingsPanel({ S, setSetting, setS }) {
           {sectionTitle("COLORS")}
           {[
             ["Profit / green", "accentGreen"], ["Loss / red", "accentRed"],
+            ["Best day", "accentBest"],
             ["Background", "bgBase"], ["Card", "bgCard"],
             ["Border", "borderColor"], ["Text primary", "textPrimary"], ["Text mid", "textMid"], ["Text dim", "textDim"],
           ].map(([l, k]) => <ColorRow key={k} label={l} k={k} S={S} onChange={setSetting} />)}
