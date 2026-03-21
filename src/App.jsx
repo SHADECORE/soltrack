@@ -2859,7 +2859,6 @@ function AdminPanel({ S, setSetting }) {
       min: r.name === "REKT" || r.min === "-Infinity" ? -Infinity : parseFloat(r.min),
     }));
     setSetting("pnlRanks", parsed);
-    saveLS("soltrack_settings", { ...S, pnlRanks: parsed });
     const token = sessionStorage.getItem("soltrack_admin_token");
     if (base && token) {
       try {
@@ -2869,9 +2868,9 @@ function AdminPanel({ S, setSetting }) {
           body: JSON.stringify({ ranks: parsed }),
         });
         if (res.ok) alert("Ranks saved and published to all users.");
-        else alert("Ranks saved locally but failed to publish: " + (await res.text()));
+        else alert("Ranks failed to publish: " + (await res.text()));
       } catch (e) {
-        alert("Ranks saved locally but worker unreachable: " + e.message);
+        alert("Worker unreachable: " + e.message);
       }
     } else {
       alert("Ranks saved locally. (Connect to worker to publish to all users.)");
@@ -4886,7 +4885,11 @@ function SettingsPanel({ S, setSetting, setS }) {
 
 // ── APP ───────────────────────────────────────────────────────────────────────
 export default function App() {
-  const [S, setS] = useState(() => ({ ...DEFAULT_SETTINGS, ...loadLS("soltrack_settings", {}) }));
+  const [S, setS] = useState(() => {
+    const saved = loadLS("soltrack_settings", {});
+    const { pnlRanks: _dropped, ...rest } = saved; // never load ranks from localStorage
+    return { ...DEFAULT_SETTINGS, ...rest };
+  });
 
   // Client token — generated once, persisted in localStorage.
   // Ties this browser to its server data. Used to wipe data if needed.
@@ -4899,7 +4902,9 @@ export default function App() {
   }, []);
   const setSetting = useCallback((k, v) => setS((p) => {
     const next = { ...p, [k]: v };
-    saveLS("soltrack_settings", next);
+    // Don't persist ranks to localStorage — they are server-authoritative
+    const { pnlRanks: _dropped, ...toSave } = next;
+    saveLS("soltrack_settings", toSave);
     return next;
   }), []);
 
