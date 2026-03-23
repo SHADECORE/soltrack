@@ -318,6 +318,7 @@ const DEFAULT_CARD = {
   customColor:  "#ffffff",
   // ── Minor text color (wallet label, SOL label, % return)
   minorTextColor: "rgba(255,255,255,0.22)",
+  notchStyle: "semicircle",  // "semicircle" | "triangle"
 };
 
 // ── (no mock data) ────────────────────────────────────────────────────────────
@@ -2395,8 +2396,16 @@ function TradingJournal({ closed, S, terminalId, mistakeTags, setMistakeTags }) 
                 return (
                   <tr key={pos.mint} style={{ borderBottom: `1px solid ${S.borderColor}22` }}>
                     <td style={{ padding: "4px 10px", fontFamily: "'Orbitron',monospace", fontSize: 9,
-                      color: S.accentGreen, letterSpacing: ".06em", whiteSpace: "nowrap" }}>
+                      color: S.accentGreen, letterSpacing: ".06em", whiteSpace: "nowrap",
+                      cursor: pos.mint ? "pointer" : "default" }}
+                      onClick={() => {
+                        if (!pos.mint) return;
+                        window.open(terminalUrl(terminalId, pos.mint), "_blank", "noopener,noreferrer");
+                      }}
+                      onMouseEnter={e => { if (pos.mint) e.currentTarget.style.opacity = ".7"; }}
+                      onMouseLeave={e => { e.currentTarget.style.opacity = "1"; }}>
                       {pos.token ?? pos.mint?.slice(0,8) ?? "?"}
+                      {pos.mint && <span style={{ fontSize: 7, opacity: .4, marginLeft: 4 }}>↗</span>}
                     </td>
                     <td style={{ padding: "4px 10px", ...mono, fontSize: 9, color: S.textDim, whiteSpace: "nowrap" }}>
                       {pos.time ?? "—"}
@@ -2706,10 +2715,17 @@ function Onboarding({ S, workerUrl: workerUrlProp, onComplete }) {
       localStorage.setItem("soltrack_user_token", token);
 
       // Check if Helius key already stored
-      const hasKeyRes = await fetch(`${base}/auth/has-key`, {
-        headers: { "Authorization": `Bearer ${token}` }
-      });
-      const { hasKey } = await hasKeyRes.json();
+      // If this is a re-login (session expired), key is already on server — skip helius step
+      let hasKey = false;
+      try {
+        const hasKeyRes = await fetch(`${base}/auth/has-key`, {
+          headers: { "Authorization": `Bearer ${token}` }
+        });
+        if (hasKeyRes.ok) {
+          const data = await hasKeyRes.json();
+          hasKey = data.hasKey ?? false;
+        }
+      } catch {}
 
       if (hasKey) {
         onComplete(token);
@@ -2859,7 +2875,7 @@ function AdminPanel({ S, setSetting }) {
       min: r.name === "REKT" || r.min === "-Infinity" ? -Infinity : parseFloat(r.min),
     }));
     setSetting("pnlRanks", parsed);
-    const token = sessionStorage.getItem("soltrack_admin_token");
+    // token is already in component state from OAuth callback
     if (base && token) {
       try {
         const res = await fetch(`${base}/admin/ranks`, {
@@ -3514,7 +3530,11 @@ function TradesTab({ filtered, wallets, S, getColor, tf, onTokenClick }) {
                 </td>
                 <td style={{ padding: "9px 14px", color: S.textDim, fontSize: 10 }}>{t.ts?.slice(0, 16).replace("T", " ")}</td>
                 <td style={{ padding: "9px 14px", color: "#fff", fontFamily: "'Orbitron',monospace", fontSize: 10, letterSpacing: ".06em", cursor: onTokenClick ? "pointer" : undefined }}
-                  onClick={() => onTokenClick && onTokenClick({ mint: t.mint, token: t.token })}
+                  onClick={() => {
+                    const url = t.mint ? terminalUrl(S.terminalId ?? "padre", t.mint) : null;
+                    if (url) window.open(url, "_blank", "noopener,noreferrer");
+                    else if (onTokenClick) onTokenClick({ mint: t.mint, token: t.token });
+                  }}
                   onMouseEnter={(e) => { if (onTokenClick) e.currentTarget.style.color = S.accentGreen; }}
                   onMouseLeave={(e) => { if (onTokenClick) e.currentTarget.style.color = "#fff"; }}>{t.token}</td>
                 <td style={{ padding: "9px 14px" }}><span className={`pill pill-${t.type}`} style={{ "--buy": S.accentGreen, "--sell": S.accentRed }}>{t.type.toUpperCase()}</span></td>
@@ -3644,7 +3664,7 @@ function TokenDetail({ mint, token, trades, wallets, S, getColor, onBack }) {
             {token}
           </div>
           <div style={{ fontSize: 9, color: S.textDim, letterSpacing: ".04em", marginTop: 2, ...mono }}>
-            {mint.slice(0, 20)}…{mint.slice(-8)}
+            {mint ? `${mint.slice(0, 20)}…${mint.slice(-8)}` : "—"}
           </div>
         </div>
         <div style={{ marginLeft: "auto", display: "flex", gap: 8 }}>
@@ -3891,7 +3911,8 @@ function ShareCardInner({ S, pnlCurve, closed, totalPnl, winRate, tf, walletLabe
   const rank  = _overrideRank ?? getPnlRank(totalPnl, ranks);
 
   // Merge rank's own card settings with defaults — every visual property lives here
-  const c = { ...DEFAULT_CARD, ...(rank.card ?? {}) };
+  // cardNotchStyle from global settings overrides per-rank default
+  const c = { ...DEFAULT_CARD, notchStyle: S.cardNotchStyle ?? "semicircle", ...(rank.card ?? {}) };
 
   const totalSolIn  = closed.reduce((s, x) => s + (x.solIn  || 0), 0);
   const totalSolOut = closed.reduce((s, x) => s + (x.solOut || 0), 0);
@@ -3911,7 +3932,31 @@ function ShareCardInner({ S, pnlCurve, closed, totalPnl, winRate, tf, walletLabe
   const ROW_Y = DIV + CUT + STUB_PAD_TOP;
 
   // ── Ticket shape path ────────────────────────────────────────────
-  const path = [
+  const notchStyle = c.notchStyle ?? "semicircle";
+  // Triangle notch: pointed inward with rounded corners where diagonal meets card edge
+  const buildTrianglePath = () => {
+    const NW = CUT, NH = CUT; // notch width (inset) and half-height
+    const len = Math.sqrt(NW*NW + NH*NH);
+    const dx = NW/len, dy = NH/len;
+    const rc = 6; // corner rounding radius
+    return [
+      `M ${R} 0 L ${W-R} 0 Q ${W} 0 ${W} ${R}`,
+      `L ${W} ${DIV-NH-rc}`,
+      `Q ${W} ${DIV-NH} ${W-rc*dx} ${DIV-NH+rc*dy}`,
+      `L ${W-NW} ${DIV}`,
+      `L ${W-rc*dx} ${DIV+NH-rc*dy}`,
+      `Q ${W} ${DIV+NH} ${W} ${DIV+NH+rc}`,
+      `L ${W} ${H-R} Q ${W} ${H} ${W-R} ${H}`,
+      `L ${R} ${H} Q 0 ${H} 0 ${H-R}`,
+      `L 0 ${DIV+NH+rc}`,
+      `Q 0 ${DIV+NH} ${rc*dx} ${DIV+NH-rc*dy}`,
+      `L ${NW} ${DIV}`,
+      `L ${rc*dx} ${DIV-NH+rc*dy}`,
+      `Q 0 ${DIV-NH} 0 ${DIV-NH-rc}`,
+      `L 0 ${R} Q 0 0 ${R} 0 Z`,
+    ].join(' ');
+  };
+  const path = notchStyle === "triangle" ? buildTrianglePath() : [
     `M ${R} 0 L ${W-R} 0 Q ${W} 0 ${W} ${R}`,
     `L ${W} ${DIV-CUT} A ${CUT} ${CUT} 0 0 0 ${W} ${DIV+CUT}`,
     `L ${W} ${H-R} Q ${W} ${H} ${W-R} ${H}`,
@@ -4723,6 +4768,35 @@ function SettingsPanel({ S, setSetting, setS }) {
           {sectionTitle("GRAPH")}
           <SliderRow label="Line width"      k="graphLineWidth"     min={1}  max={6}   step={0.5}  S={S} onChange={setSetting} />
 
+        </BorderCard>
+
+        {/* Share card notch */}
+        <BorderCard S={S} style={{ padding: "18px 20px" }}>
+          {sectionTitle("SHARE CARD")}
+          <div style={{ color: S.textDim, fontSize: 9, fontFamily: "'DM Mono',monospace", marginBottom: 10 }}>
+            Ticket notch style — affects all rank cards
+          </div>
+          <div style={{ display: "flex", gap: 8 }}>
+            {[
+              { id: "semicircle", label: "SEMICIRCLE", desc: "curved arc notch" },
+              { id: "triangle",   label: "TRIANGLE",   desc: "pointed notch with rounded corners" },
+            ].map(opt => {
+              const active = (S.cardNotchStyle ?? "semicircle") === opt.id;
+              return (
+                <button key={opt.id} onClick={() => setSetting("cardNotchStyle", opt.id)}
+                  style={{
+                    flex: 1, background: active ? S.accentGreen + "18" : "none",
+                    border: `1px solid ${active ? S.accentGreen : S.borderColor}`,
+                    color: active ? S.accentGreen : S.textDim, cursor: "pointer",
+                    padding: "10px 8px", fontFamily: "'DM Mono',monospace",
+                    fontSize: 9, letterSpacing: ".1em", transition: "all .15s",
+                  }}>
+                  <div style={{ fontWeight: 700, marginBottom: 3 }}>{opt.label}</div>
+                  <div style={{ fontSize: 8, opacity: .6 }}>{opt.desc}</div>
+                </button>
+              );
+            })}
+          </div>
         </BorderCard>
 
         {/* Currency */}
