@@ -1076,24 +1076,29 @@ function buildDayMap(trades, tzOffset = 0) {
   const pos = {};
 
   for (const t of [...trades].sort((a, b) => new Date(a.ts) - new Date(b.ts))) {
+    const tMint = t.mint ?? t.token;
+    const tStable = isStablecoin(tMint, t.token);
     const day = toLocalDay(t.ts);
     if (!map[day]) map[day] = { pnl: 0, trades: 0, wins: 0, losses: 0, volBought: 0, volSold: 0 };
+    // Count trades + volume, but skip stable volume from vol stats
     map[day].trades++;
-    if (t.type === "buy")  map[day].volBought += t.sol || 0;
-    if (t.type === "sell") map[day].volSold   += t.sol || 0;
+    if (!tStable) {
+      if (t.type === "buy")  map[day].volBought += t.sol || 0;
+      if (t.type === "sell") map[day].volSold   += t.sol || 0;
+    }
 
-    const k = (t.wallet ? `${t.wallet}:` : "") + (t.mint ?? t.token);
-    if (!pos[k]) pos[k] = { solIn: 0, solOut: 0, lastSellDay: null, lastDay: day };
+    const k = (t.wallet ? `${t.wallet}:` : "") + tMint;
+    // Store token symbol in pos so isStablecoin can use it as fallback
+    if (!pos[k]) pos[k] = { solIn: 0, solOut: 0, lastSellDay: null, lastDay: day, token: t.token, mint: tMint };
     pos[k].lastDay = day;
     if (t.type === "buy")  pos[k].solIn  += t.sol;
     else if (t.type === "sell") { pos[k].solOut += t.sol; pos[k].lastSellDay = day; }
   }
 
   // Attribute each position's net PnL to its close day — skip stablecoins
-  for (const [k, p] of Object.entries(pos)) {
-    // k = "wallet:mint" or "mint" — extract mint
-    const mint = k.includes(":") ? k.split(":").slice(1).join(":") : k;
-    if (isStablecoin(mint, p.token)) continue;
+  for (const p of Object.values(pos)) {
+    // p.mint and p.token are now stored — symbol fallback works correctly
+    if (isStablecoin(p.mint, p.token)) continue;
     const day = p.lastSellDay ?? p.lastDay;
     if (!map[day]) map[day] = { pnl: 0, trades: 0, wins: 0, losses: 0, volBought: 0, volSold: 0 };
     const net = p.solOut - p.solIn;
