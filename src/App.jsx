@@ -724,55 +724,15 @@ function PnlGraph({ data, color, S, height = 210, wallets = [], zoom: zoomProp, 
     return result.sort((a, b) => (a.idx ?? 0) - (b.idx ?? 0));
   }, [rawVisData, S.graphLodPoints]);
 
-  // Stables excluded from axis range and line — they float as annotations above the line
-  const nonStableVisData = visData.filter(d => !(d.isStable ?? isStablecoin(d.mint, d.token)));
-  const vals = (nonStableVisData.length ? nonStableVisData : visData).map(d => d.cumPnl);
+  // Strip stables out completely — they don't belong on the chart
+  const chartData = visData.filter(d => !(d.isStable ?? isStablecoin(d.mint, d.token)));
+  const vals = chartData.length ? chartData.map(d => d.cumPnl) : [0];
   const minV = Math.min(...vals), maxV = Math.max(...vals);
   const rangeV = maxV - minV || 1;
-  const toX = (i) => PAD.left + (i / (visData.length - 1 || 1)) * innerW;
+  const toX = (i) => PAD.left + (i / (chartData.length - 1 || 1)) * innerW;
   const toY = (v)  => PAD.top  + (1 - (v - minV) / rangeV) * (H - PAD.top - PAD.bottom);
-
-  // Build two arrays:
-  // linePoints — non-stable only, drawn as the continuous line
-  // stablePoints — stable only, floated 22px above the nearest preceding line point Y
-  const linePoints = [];
-  const stablePoints = [];
-  let lastLineY = toY(0); // fallback anchor
-
-  visData.forEach((d, i) => {
-    const stable = d.isStable ?? isStablecoin(d.mint, d.token);
-    const x = toX(i);
-    if (stable) {
-      // Float 22px above the current line anchor, never above top padding
-      const floatY = Math.max(PAD.top + 8, lastLineY - 22);
-      stablePoints.push({ x, y: floatY, d });
-    } else {
-      const y = toY(d.cumPnl);
-      lastLineY = y;
-      linePoints.push({ x, y, d });
-    }
-  });
-
-  // For hover detection we still need all points in order (index = hov index)
-  // Build a unified points array: stable points get their floatY, line points get real Y
-  const points = (() => {
-    let lastY = toY(0);
-    return visData.map((d, i) => {
-      const stable = d.isStable ?? isStablecoin(d.mint, d.token);
-      const x = toX(i);
-      if (stable) {
-        const floatY = Math.max(PAD.top + 8, lastY - 22);
-        return { x, y: floatY, d };
-      } else {
-        const y = toY(d.cumPnl);
-        lastY = y;
-        return { x, y, d };
-      }
-    });
-  })();
-
-  // lineSegments for rendering the continuous line (non-stable only)
-  const lineSegments = linePoints.length > 1 ? [linePoints] : [];
+  const linePoints = chartData.map((d, i) => ({ x: toX(i), y: toY(d.cumPnl), d }));
+  const points = linePoints; // alias used by hover/tooltip logic below
 
   // Simple green/red point colors — no intensity normalization
   const ptColor = (pnl) => pnl > 0 ? S.accentGreen : pnl < 0 ? S.accentRed : "#888888";
@@ -1055,7 +1015,7 @@ function PnlGraph({ data, color, S, height = 210, wallets = [], zoom: zoomProp, 
         {/* X-axis ticker labels — clickable terminal links, below data area */}
         {(() => {
           const maxLabels = Math.floor(innerW / 52);
-          const step = Math.max(1, Math.ceil((visData.length - 1) / maxLabels));
+          const step = Math.max(1, Math.ceil((points.length - 1) / maxLabels));
           return points.filter((_, i) => i > 0 && (i % step === 0 || i === points.length - 1)).map((p) => {
             const url = p.d.mint ? terminalUrl(S.terminalId ?? "padre", p.d.mint) : null;
             return (
