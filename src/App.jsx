@@ -4006,7 +4006,8 @@ function ShareCardInner({ S, pnlCurve, closed, totalPnl, winRate, tf, walletLabe
 
   // Merge rank's own card settings with defaults — every visual property lives here
   // cardNotchStyle from global settings overrides per-rank default
-  const c = { ...DEFAULT_CARD, notchStyle: S.cardNotchStyle ?? "semicircle", ...(rank.card ?? {}) };
+  // cardNotchStyle is a global user preference — must override rank.card which may have its own notchStyle
+  const c = { ...DEFAULT_CARD, ...(rank.card ?? {}), notchStyle: S.cardNotchStyle ?? "semicircle" };
 
   const totalSolIn  = closed.reduce((s, x) => s + (x.solIn  || 0), 0);
   const totalSolOut = closed.reduce((s, x) => s + (x.solOut || 0), 0);
@@ -4481,8 +4482,8 @@ function ShareModal({ S, setSetting, pnlCurve, closed, totalPnl, winRate, tf, wa
               <div style={{ ...mono, fontSize:7, color:'#444', letterSpacing:'.12em', marginBottom:5 }}>NOTCH</div>
               <div style={{ display:'flex', gap:4 }}>
                 {[
-                  { id:'semicircle', label:'SEMI', title:'Semicircle notch — curved arc' },
-                  { id:'triangle',   label:'TRI',  title:'Triangle notch — pointed with rounded corners' },
+                  { id:'semicircle', label:'⌢  SEMI', title:'Semicircle notch — curved arc' },
+                  { id:'triangle',   label:'△  TRI',  title:'Triangle notch — pointed with rounded corners' },
                 ].map(opt => {
                   const active = (S.cardNotchStyle ?? 'semicircle') === opt.id;
                   return (
