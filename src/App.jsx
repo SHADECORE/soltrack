@@ -695,7 +695,9 @@ function PnlGraph({ data, color, S, height = 210, wallets = [], zoom: zoomProp, 
   const clampedPan = Math.max(0, Math.min(panX, maxPan));
   const startIdx = Math.floor(clampedPan);
   const endIdx   = Math.min(n - 1, startIdx + visible - 1);
-  const rawVisData = data.slice(startIdx, endIdx + 1);
+  // Strip stables before LOD — prevents them from being selected as bucket min/max
+  const rawVisData = data.slice(startIdx, endIdx + 1)
+    .filter(d => d.label === "START" || !(d.isStable ?? isStablecoin(d.mint, d.token)));
 
   // LOD: when many points visible, keep only the most significant ones.
   // Always render ≤300 points. Within each bucket keep the min and max
@@ -724,15 +726,14 @@ function PnlGraph({ data, color, S, height = 210, wallets = [], zoom: zoomProp, 
     return result.sort((a, b) => (a.idx ?? 0) - (b.idx ?? 0));
   }, [rawVisData, S.graphLodPoints]);
 
-  // Strip stables out completely — they don't belong on the chart
-  const chartData = visData.filter(d => !(d.isStable ?? isStablecoin(d.mint, d.token)));
-  const vals = chartData.length ? chartData.map(d => d.cumPnl) : [0];
+  // rawVisData is already stable-free (filtered before LOD)
+  const vals = visData.length > 1 ? visData.map(d => d.cumPnl) : [0];
   const minV = Math.min(...vals), maxV = Math.max(...vals);
   const rangeV = maxV - minV || 1;
-  const toX = (i) => PAD.left + (i / (chartData.length - 1 || 1)) * innerW;
+  const toX = (i) => PAD.left + (i / (visData.length - 1 || 1)) * innerW;
   const toY = (v)  => PAD.top  + (1 - (v - minV) / rangeV) * (H - PAD.top - PAD.bottom);
-  const linePoints = chartData.map((d, i) => ({ x: toX(i), y: toY(d.cumPnl), d }));
-  const points = linePoints; // alias used by hover/tooltip logic below
+  const linePoints = visData.map((d, i) => ({ x: toX(i), y: toY(d.cumPnl), d }));
+  const points = linePoints;
 
   // Simple green/red point colors — no intensity normalization
   const ptColor = (pnl) => pnl > 0 ? S.accentGreen : pnl < 0 ? S.accentRed : "#888888";
@@ -5287,11 +5288,12 @@ export default function App() {
     }
     // Keep only curve points (closed trades) that closed within the window
     const windowPoints = fullCurve.slice(1).filter(p => p.closeTs >= windowStart && p.closeTs < windowEnd);
-    // Recalculate cumPnl from 0 for this window
+    // Recalculate cumPnl from 0 for this window — stables don't advance cum
     let cum = 0;
     const result = [{ label: "START", idx: 0, cumPnl: 0, tradePnl: 0, fee: 0 }];
     for (const p of windowPoints) {
-      cum = +(cum + p.tradePnl).toFixed(4);
+      const pStable = p.isStable ?? isStablecoin(p.mint, p.token);
+      if (!pStable) cum = +(cum + p.tradePnl).toFixed(4);
       result.push({ ...p, cumPnl: cum, idx: result.length });
     }
     return result;
@@ -5300,9 +5302,9 @@ export default function App() {
   const filtered = useMemo(() => filterByTime(rawTrades, tf, S.tzOffset ?? 0, customDay), [rawTrades, tf, S.tzOffset, customDay]);
 
   const closed = pnlCurve.slice(1);
-  // Stablecoins are in graph for visual context but excluded from all stats
-  const closedNonStable = closed.filter(p => !p.isStable);
-  const totalPnl = closedNonStable.reduce((s, p) => s + p.tradePnl, 0);
+  const closedNonStable = closed.filter(p => !(p.isStable ?? isStablecoin(p.mint, p.token)));
+  // Single source of truth: pnlCurve last cumPnl (stables don't advance it)
+  const totalPnl = pnlCurve[pnlCurve.length - 1]?.cumPnl ?? 0;
   const wins = closedNonStable.filter((p) => p.tradePnl > 0).length;
   const winRate = closedNonStable.length ? ((wins / closedNonStable.length) * 100).toFixed(2) : "0.00";
   const buyCount  = filtered.filter(t => t.type === "buy").length;
@@ -5436,7 +5438,7 @@ export default function App() {
           const mint = pt.mint;
           const tokenTrades = rawTrades.filter(t => (t.mint ?? t.token) === mint);
           ctxCurve = buildCurve(tokenTrades);
-          ctxClosed = ctxCurve.slice(1).filter(p => !p.isStable);
+          ctxClosed = ctxCurve.slice(1).filter(p => !(p.isStable ?? isStablecoin(p.mint, p.token)));
           ctxTotalPnl = ctxCurve[ctxCurve.length-1]?.cumPnl ?? 0;
           const ctxWins = ctxClosed.filter(p => p.tradePnl > 0).length;
           ctxWinRate = ctxClosed.length ? ((ctxWins / ctxClosed.length) * 100).toFixed(2) : "0.00";
@@ -5484,7 +5486,7 @@ export default function App() {
             dayTrades = rawTrades.filter(t => closedOnDay.has((t.wallet ?? "") + ":" + (t.mint ?? t.token ?? "")));
           }
           ctxCurve = buildCurve(dayTrades);
-          ctxClosed = ctxCurve.slice(1).filter(p => !p.isStable);
+          ctxClosed = ctxCurve.slice(1).filter(p => !(p.isStable ?? isStablecoin(p.mint, p.token)));
           ctxTotalPnl = ctxCurve[ctxCurve.length-1]?.cumPnl ?? 0;
           const ctxWins = ctxClosed.filter(p => p.tradePnl > 0).length;
           ctxWinRate = ctxClosed.length ? ((ctxWins / ctxClosed.length) * 100).toFixed(2) : "0.00";
