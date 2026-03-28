@@ -122,11 +122,17 @@ function parseTx(tx, wallet) {
       }
     }
 
-    // ── SELL: sent tracked tokens, received SOL ─────────────────────────────
-    // walletDelta > 0 means net SOL came in (proceeds exceeded fees).
-    // If walletDelta ≤ 0 the sell was for USDC (no SOL received) — skip.
-    if (tokenOut.length > 0 && walletDelta > 0.001) {
-      const revenueEach  = +(Math.abs(walletDelta) / tokenOut.length).toFixed(9);
+    // ── SELL: sent tracked tokens, received SOL or stablecoin ───────────────
+    // walletDelta > 0 means net SOL came in (direct SOL sell).
+    // walletDelta ≈ 0 but stables came in = TOKEN→USDC sell — record with stableIn amount.
+    const stableIn = allIn.filter(t => STABLE_MINTS.has(t.mint));
+    const stableInAmount = stableIn.reduce((s, t) => s + (t.tokenAmount ?? 0), 0);
+    // For USDC sells: treat USDC received as SOL-equivalent revenue
+    // (imperfect but preserves position closure — treated as 1:1 proxy)
+    const isUsdcSell = tokenOut.length > 0 && stableInAmount > 0 && walletDelta <= 0.001;
+    if (tokenOut.length > 0 && (walletDelta > 0.001 || isUsdcSell)) {
+      const revenue = isUsdcSell ? stableInAmount : Math.abs(walletDelta);
+      const revenueEach  = +(revenue / tokenOut.length).toFixed(9);
       const totalFeeEach = +((txFee + sellAppFee) / tokenOut.length).toFixed(9);
       const txFeeEach    = +(txFee / tokenOut.length).toFixed(9);
       for (const t of tokenOut) {
@@ -134,10 +140,11 @@ function parseTx(tx, wallet) {
           id: sig + "_sell_" + t.mint.slice(0, 8),
           token: t.symbol || tokenSym(t.mint),
           mint: t.mint, type: "sell", ts,
-          sol: revenueEach,    // walletDelta / n — net SOL received after all fees + rent reclaim
-          fee: totalFeeEach,   // txFee + app fees (Jito, platform)
-          txFee: txFeeEach,    // protocol fee only
+          sol: revenueEach,    // walletDelta/n for SOL sells; stableInAmount/n for USDC sells
+          fee: totalFeeEach,
+          txFee: txFeeEach,
           amount: t.tokenAmount ?? 0, sig,
+          usdcSell: isUsdcSell, // flag for debugging
         });
       }
     }
@@ -384,9 +391,9 @@ function buildCurve(trades) {
 
   for (const p of sorted) {
     const net = p.solOut - p.solIn; // negative if still holding
-    cum += net;
-    const ts = p.lastSellTs ?? p.lastTs;
     const isStable = STABLE_MINTS.has(p.mint ?? "");
+    if (!isStable) cum += net; // stables don't count toward cumulative PnL
+    const ts = p.lastSellTs ?? p.lastTs;
     curve.push({
       label:    p.token ?? p.mint?.slice(0,6) ?? "?",
       idx:      curve.length,
@@ -435,14 +442,14 @@ function buildMergedCurve(trades) {
 
   for (const p of sorted) {
     const net = p.solOut - p.solIn;
-    cum += net;
+    const isStable = STABLE_MINTS.has(p.mint ?? "");
+    if (!isStable) cum += net; // stables don't count toward cumulative PnL
     const ts = p.lastSellTs ?? p.lastTs;
     // Build per-wallet breakdown
     const walletBreakdown = Object.entries(p.wallets).map(([wallet, wd]) => ({
       wallet,
       net: +(wd.solOut - wd.solIn).toFixed(9),
     }));
-    const isStable = STABLE_MINTS.has(p.mint ?? "");
     curve.push({
       label:    p.token ?? p.mint?.slice(0,6) ?? "?",
       idx:      curve.length,
@@ -5410,7 +5417,7 @@ export default function App() {
           const mint = pt.mint;
           const tokenTrades = rawTrades.filter(t => (t.mint ?? t.token) === mint);
           ctxCurve = buildCurve(tokenTrades);
-          ctxClosed = ctxCurve.slice(1);
+          ctxClosed = ctxCurve.slice(1).filter(p => !p.isStable);
           ctxTotalPnl = ctxCurve[ctxCurve.length-1]?.cumPnl ?? 0;
           const ctxWins = ctxClosed.filter(p => p.tradePnl > 0).length;
           ctxWinRate = ctxClosed.length ? ((ctxWins / ctxClosed.length) * 100).toFixed(2) : "0.00";
@@ -5458,7 +5465,7 @@ export default function App() {
             dayTrades = rawTrades.filter(t => closedOnDay.has((t.wallet ?? "") + ":" + (t.mint ?? t.token ?? "")));
           }
           ctxCurve = buildCurve(dayTrades);
-          ctxClosed = ctxCurve.slice(1);
+          ctxClosed = ctxCurve.slice(1).filter(p => !p.isStable);
           ctxTotalPnl = ctxCurve[ctxCurve.length-1]?.cumPnl ?? 0;
           const ctxWins = ctxClosed.filter(p => p.tradePnl > 0).length;
           ctxWinRate = ctxClosed.length ? ((ctxWins / ctxClosed.length) * 100).toFixed(2) : "0.00";
