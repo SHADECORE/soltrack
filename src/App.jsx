@@ -386,6 +386,7 @@ function buildCurve(trades) {
     const net = p.solOut - p.solIn; // negative if still holding
     cum += net;
     const ts = p.lastSellTs ?? p.lastTs;
+    const isStable = STABLE_MINTS.has(p.mint ?? "");
     curve.push({
       label:    p.token ?? p.mint?.slice(0,6) ?? "?",
       idx:      curve.length,
@@ -400,6 +401,7 @@ function buildCurve(trades) {
       wallet:   p.wallet,
       closeTs:  new Date(ts).getTime(),
       isOpen:   !p.lastSellTs,
+      isStable,
     });
   }
 
@@ -440,6 +442,7 @@ function buildMergedCurve(trades) {
       wallet,
       net: +(wd.solOut - wd.solIn).toFixed(9),
     }));
+    const isStable = STABLE_MINTS.has(p.mint ?? "");
     curve.push({
       label:    p.token ?? p.mint?.slice(0,6) ?? "?",
       idx:      curve.length,
@@ -451,10 +454,11 @@ function buildMergedCurve(trades) {
       time:     ts?.slice(5,16).replace("T"," "),
       token:    p.token,
       mint:     p.mint,
-      wallet:   null, // merged — no single wallet
-      walletBreakdown, // array of { wallet, net }
+      wallet:   null,
+      walletBreakdown,
       closeTs:  new Date(ts).getTime(),
       isOpen:   !p.lastSellTs,
+      isStable,
     });
   }
   return curve;
@@ -895,18 +899,20 @@ function PnlGraph({ data, color, S, height = 210, wallets = [], zoom: zoomProp, 
 
         {/* Trade point shapes */}
         {points.slice(1).map((p, i) => {
-          const col = ptColor(p.d.tradePnl);
+          const isStable = p.d.isStable ?? false;
+          const col = isStable ? "#555566" : ptColor(p.d.tradePnl);
           const isHov = hov === i + 1;
           const rule = resolveShape(p.d.tradePnl, rules);
           const sizeScale = S.graphShapeNormalize ? (0.5 + Math.min(1, Math.abs(p.d.tradePnl) / maxAbsPnl)) : 1;
-          const r = (rule.size / 2) * sizeScale * (isHov ? 1.3 : 1);
+          const r = (rule.size / 2) * sizeScale * (isHov ? 1.3 : 1) * (isStable ? 0.7 : 1);
           const d = shapePath(rule.shape, p.x, p.y, r);
           const commonProps = {
             fill: S.bgCard, stroke: col,
             strokeWidth: isHov ? 2.5 : 1.5,
-            style: { filter: `drop-shadow(0 0 ${isHov ? 7 : 3}px ${col})` }
+            opacity: isStable ? 0.5 : 1,
+            style: { filter: isStable ? "none" : `drop-shadow(0 0 ${isHov ? 7 : 3}px ${col})` }
           };
-          const clickProps = onPointClick ? {
+          const clickProps = (!isStable && onPointClick) ? {
             onClick: (e) => { e.stopPropagation(); onPointClick(p.d); },
             style: { ...commonProps.style, cursor: "pointer" },
           } : {};
@@ -943,7 +949,9 @@ function PnlGraph({ data, color, S, height = 210, wallets = [], zoom: zoomProp, 
             <g key="tooltip">
               <rect x={tx} y={ty} width={TW} height={TH} fill={S.bgCard} stroke={col} strokeWidth="1" opacity="0.97" />
               <rect x={tx} y={ty} width={3} height={TH} fill={col} />
-              <text x={tx+10} y={(y+=16)} fill={S.textMid} fontSize="10" fontFamily="DM Mono" fontWeight="bold">{hovD.label}</text>
+              <text x={tx+10} y={(y+=16)} fill={hovD.isStable ? "#888899" : S.textMid} fontSize="10" fontFamily="DM Mono" fontWeight="bold">
+                {hovD.label}{hovD.isStable ? " (stable)" : ""}
+              </text>
               <text x={tx+10} y={(y+=14)} fill={S.textDim} fontSize="9"  fontFamily="DM Mono">{hovD.time}</text>
               <text x={tx+10} y={(y+=16)} fill={pnlC(hovD.tradePnl)} fontSize="10" fontFamily="DM Mono">
                 trade {hovD.tradePnl >= 0 ? "+" : ""}{hovD.tradePnl} SOL
@@ -1054,8 +1062,11 @@ function buildDayMap(trades, tzOffset = 0) {
     else if (t.type === "sell") { pos[k].solOut += t.sol; pos[k].lastSellDay = day; }
   }
 
-  // Attribute each position's net PnL to its close day
-  for (const p of Object.values(pos)) {
+  // Attribute each position's net PnL to its close day — skip stablecoins
+  for (const [k, p] of Object.entries(pos)) {
+    // k = "wallet:mint" or "mint" — extract mint
+    const mint = k.includes(":") ? k.split(":").slice(1).join(":") : k;
+    if (STABLE_MINTS.has(mint)) continue;
     const day = p.lastSellDay ?? p.lastDay;
     if (!map[day]) map[day] = { pnl: 0, trades: 0, wins: 0, losses: 0, volBought: 0, volSold: 0 };
     const net = p.solOut - p.solIn;
@@ -5263,9 +5274,11 @@ export default function App() {
   const filtered = useMemo(() => filterByTime(rawTrades, tf, S.tzOffset ?? 0, customDay), [rawTrades, tf, S.tzOffset, customDay]);
 
   const closed = pnlCurve.slice(1);
-  const totalPnl = pnlCurve[pnlCurve.length - 1]?.cumPnl ?? 0;
-  const wins = closed.filter((p) => p.tradePnl > 0).length;
-  const winRate = closed.length ? ((wins / closed.length) * 100).toFixed(2) : "0.00";
+  // Stablecoins are in graph for visual context but excluded from all stats
+  const closedNonStable = closed.filter(p => !p.isStable);
+  const totalPnl = closedNonStable.reduce((s, p) => s + p.tradePnl, 0);
+  const wins = closedNonStable.filter((p) => p.tradePnl > 0).length;
+  const winRate = closedNonStable.length ? ((wins / closedNonStable.length) * 100).toFixed(2) : "0.00";
   const buyCount  = filtered.filter(t => t.type === "buy").length;
   const sellCount = filtered.filter(t => t.type === "sell").length;
 
