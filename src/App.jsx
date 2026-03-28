@@ -205,6 +205,7 @@ const DEFAULT_SETTINGS = {
   graphGlowWidth: 100,
   tzOffset: 0,
   terminalId: "axiom",
+  graphMergeTokens: false, // merge same-token positions across wallets into one point
   uiZoom: 1,
   privacyMode: false,
   graphHeight: 400,
@@ -405,6 +406,60 @@ function buildCurve(trades) {
   return curve;
 }
 
+// ── MERGED CURVE BUILDER ──────────────────────────────────────────────────────
+// Like buildCurve but merges same-token positions across all wallets into one point.
+// walletBreakdown: { mint → { wallet → {solIn, solOut, net} } }
+function buildMergedCurve(trades) {
+  const curve = [{ label: "START", idx: 0, cumPnl: 0, tradePnl: 0, fee: 0 }];
+  let cum = 0;
+  // Key by mint only (not wallet:mint), accumulate per-wallet breakdown
+  const positions = {}; // mint → { solIn, solOut, fees, token, mint, lastTs, lastSellTs, wallets:{wallet→{solIn,solOut}} }
+
+  for (const t of [...trades].sort((a, b) => new Date(a.ts) - new Date(b.ts))) {
+    const mint = t.mint ?? t.token;
+    if (!positions[mint]) positions[mint] = { solIn: 0, solOut: 0, fees: 0, token: t.token, mint, lastTs: t.ts, lastSellTs: null, wallets: {} };
+    const pos = positions[mint];
+    pos.lastTs = t.ts;
+    pos.fees += t.fee || 0;
+    const wk = t.wallet ?? "unknown";
+    if (!pos.wallets[wk]) pos.wallets[wk] = { solIn: 0, solOut: 0 };
+    if (t.type === "buy")  { pos.solIn  += t.sol; pos.wallets[wk].solIn  += t.sol; }
+    else if (t.type === "sell") { pos.solOut += t.sol; pos.wallets[wk].solOut += t.sol; pos.lastSellTs = t.ts; pos.wallets[wk].lastSell = t.ts; }
+  }
+
+  const sorted = Object.values(positions).sort((a, b) =>
+    new Date(a.lastSellTs ?? a.lastTs) - new Date(b.lastSellTs ?? b.lastTs)
+  );
+
+  for (const p of sorted) {
+    const net = p.solOut - p.solIn;
+    cum += net;
+    const ts = p.lastSellTs ?? p.lastTs;
+    // Build per-wallet breakdown
+    const walletBreakdown = Object.entries(p.wallets).map(([wallet, wd]) => ({
+      wallet,
+      net: +(wd.solOut - wd.solIn).toFixed(9),
+    }));
+    curve.push({
+      label:    p.token ?? p.mint?.slice(0,6) ?? "?",
+      idx:      curve.length,
+      cumPnl:   +cum.toFixed(9),
+      tradePnl: +net.toFixed(9),
+      fee:      +p.fees.toFixed(9),
+      solIn:    p.solIn,
+      solOut:   p.solOut,
+      time:     ts?.slice(5,16).replace("T"," "),
+      token:    p.token,
+      mint:     p.mint,
+      wallet:   null, // merged — no single wallet
+      walletBreakdown, // array of { wallet, net }
+      closeTs:  new Date(ts).getTime(),
+      isOpen:   !p.lastSellTs,
+    });
+  }
+  return curve;
+}
+
 const fmt = (n, d = 3) => (+(n ?? 0)).toLocaleString("en-US", { minimumFractionDigits: d, maximumFractionDigits: d });
 const sign = (n) => (n >= 0 ? "+" : "");
 
@@ -581,7 +636,7 @@ function resolveShape(tradePnl, rules, normalize) {
 }
 
 // ── SVG PNL GRAPH (zoomable + pannable) ──────────────────────────────────────
-function PnlGraph({ data, color, S, height = 210, wallets = [], zoom: zoomProp, panX: panXProp, onZoomChange, onPanChange }) {
+function PnlGraph({ data, color, S, height = 210, wallets = [], zoom: zoomProp, panX: panXProp, onZoomChange, onPanChange, onPointClick }) {
   const contRef = useRef(null);
   const svgRef  = useRef(null);
   const [dims, setDims]   = useState({ w: 800, h: height });
@@ -851,39 +906,73 @@ function PnlGraph({ data, color, S, height = 210, wallets = [], zoom: zoomProp, 
             strokeWidth: isHov ? 2.5 : 1.5,
             style: { filter: `drop-shadow(0 0 ${isHov ? 7 : 3}px ${col})` }
           };
+          const clickProps = onPointClick ? {
+            onClick: (e) => { e.stopPropagation(); onPointClick(p.d); },
+            style: { ...commonProps.style, cursor: "pointer" },
+          } : {};
           return d
-            ? <path key={i} d={d} {...commonProps} />
-            : <circle key={i} cx={p.x} cy={p.y} r={r} {...commonProps} />;
+            ? <path key={i} d={d} {...commonProps} {...clickProps} />
+            : <circle key={i} cx={p.x} cy={p.y} r={r} {...commonProps} {...clickProps} />;
         })}
 
         {/* Hover tooltip */}
         {hovP && hovD && hovD.tradePnl !== undefined && (() => {
           const col = ptColor(hovD.tradePnl);
           const tradePct = pct(hovD.tradePnl, hovD.solIn);
-          const walletLabel = hovD.wallet ? (wallets.find(w => w.hash === hovD.wallet || w.address === hovD.wallet)?.label ?? hovD.wallet.slice(0,6) + "…") : null;
-          const TW = 168, TH = (tradePct ? 90 : 76) + (walletLabel ? 14 : 0);
+          // Single wallet label (non-merged point)
+          const walletLabel = hovD.wallet
+            ? (wallets.find(w => w.hash === hovD.wallet || w.address === hovD.wallet)?.label ?? hovD.wallet.slice(0,6) + "…")
+            : null;
+          // Merged point: show per-wallet breakdown
+          const breakdown = hovD.walletBreakdown ?? null;
+          const breakdownRows = breakdown
+            ? breakdown.map(b => ({
+                label: wallets.find(w => w.hash === b.wallet || w.address === b.wallet)?.label ?? b.wallet?.slice(0,6) ?? "?",
+                net: b.net,
+              }))
+            : null;
+          const extraRows = breakdownRows ? breakdownRows.length : (walletLabel ? 1 : 0);
+          const hasShare = !!onPointClick;
+          const baseH = tradePct ? 90 : 76;
+          const TW = breakdown ? 190 : 168;
+          const TH = baseH + extraRows * 13 + (hasShare ? 14 : 0);
           const tx = hovP.x + TW + 12 > W ? hovP.x - TW - 8 : hovP.x + 12;
           const ty = Math.max(PAD.top, Math.min(H - PAD.bottom - TH, hovP.y - TH / 2));
+          let y = ty;
           return (
             <g key="tooltip">
               <rect x={tx} y={ty} width={TW} height={TH} fill={S.bgCard} stroke={col} strokeWidth="1" opacity="0.97" />
               <rect x={tx} y={ty} width={3} height={TH} fill={col} />
-              <text x={tx+10} y={ty+16} fill={S.textMid}  fontSize="10" fontFamily="DM Mono" fontWeight="bold">{hovD.label}</text>
-              <text x={tx+10} y={ty+30} fill={S.textDim}  fontSize="9"  fontFamily="DM Mono">{hovD.time}</text>
-              <text x={tx+10} y={ty+46} fill={pnlC(hovD.tradePnl)} fontSize="10" fontFamily="DM Mono">
+              <text x={tx+10} y={(y+=16)} fill={S.textMid} fontSize="10" fontFamily="DM Mono" fontWeight="bold">{hovD.label}</text>
+              <text x={tx+10} y={(y+=14)} fill={S.textDim} fontSize="9"  fontFamily="DM Mono">{hovD.time}</text>
+              <text x={tx+10} y={(y+=16)} fill={pnlC(hovD.tradePnl)} fontSize="10" fontFamily="DM Mono">
                 trade {hovD.tradePnl >= 0 ? "+" : ""}{hovD.tradePnl} SOL
               </text>
               {tradePct && (
-                <text x={tx+10} y={ty+62} fill={pnlC(hovD.tradePnl)} fontSize="11" fontFamily="DM Mono" fontWeight="bold">
+                <text x={tx+10} y={(y+=16)} fill={pnlC(hovD.tradePnl)} fontSize="11" fontFamily="DM Mono" fontWeight="bold">
                   {hovD.tradePnl >= 0 ? "+" : ""}{tradePct}%
                 </text>
               )}
-              <text x={tx+10} y={ty+(tradePct ? 78 : 62)} fill={pnlC(hovD.cumPnl)} fontSize="9" fontFamily="DM Mono">
-                cum {hovD.cumPnl >= 0 ? "+" : ""}{hovD.cumPnl} SOL
+              {!tradePct && void (y += 0)}
+              <text x={tx+10} y={(y+=16)} fill={pnlC(hovD.cumPnl)} fontSize="9" fontFamily="DM Mono">
+                total: {hovD.cumPnl >= 0 ? "+" : ""}{hovD.cumPnl} SOL
               </text>
-              {walletLabel && (
-                <text x={tx+10} y={ty+(tradePct ? 92 : 76)} fill={S.textDim} fontSize="8" fontFamily="DM Mono">
+              {/* Per-wallet breakdown for merged points */}
+              {breakdownRows && breakdownRows.map((b, bi) => (
+                <text key={bi} x={tx+10} y={(y+=13)} fill={pnlC(b.net)} fontSize="8" fontFamily="DM Mono">
+                  {b.label}: {b.net >= 0 ? "+" : ""}{b.net.toFixed(4)}
+                </text>
+              ))}
+              {/* Single wallet label for non-merged points */}
+              {!breakdownRows && walletLabel && (
+                <text x={tx+10} y={(y+=13)} fill={S.textDim} fontSize="8" fontFamily="DM Mono">
                   {walletLabel}
+                </text>
+              )}
+              {/* Click to share hint */}
+              {hasShare && (
+                <text x={tx+10} y={(y+=14)} fill={S.textDim} fontSize="8" fontFamily="DM Mono" opacity="0.5">
+                  click to share
                 </text>
               )}
             </g>
@@ -4369,6 +4458,23 @@ function ShareModal({ S, pnlCurve, closed, totalPnl, winRate, tf, walletLabel, o
         <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between',
           padding:'10px 18px', borderTop:'1px solid #1a1a1a', gap:12 }}>
           <div style={{ display:'flex', alignItems:'center', gap:12, flex:1 }}>
+            {/* Notch style toggle */}
+            <div style={{ display:'flex', gap:3, flexShrink:0 }}>
+              {[{id:"semicircle",label:"◠"},{id:"triangle",label:"◁"}].map(opt => {
+                const active = (S.cardNotchStyle ?? "semicircle") === opt.id;
+                return (
+                  <button key={opt.id} title={opt.id + " notch"}
+                    onClick={() => setSetting("cardNotchStyle", opt.id)}
+                    style={{ background: active ? accentColor+"22" : "none",
+                      border:`1px solid ${active ? accentColor : "#333"}`,
+                      color: active ? accentColor : "#555", cursor:"pointer",
+                      padding:"3px 7px", fontFamily:"'DM Mono',monospace",
+                      fontSize:10, lineHeight:1, transition:"all .12s" }}>
+                    {opt.label}
+                  </button>
+                );
+              })}
+            </div>
             {/* Chart toggle */}
             <label style={{ display:'flex', alignItems:'center', gap:5, cursor:'pointer', flexShrink:0 }}>
               <input type="checkbox" checked={showChart} onChange={e => setShowChart(e.target.checked)}
@@ -4685,15 +4791,15 @@ function SettingsPanel({ S, setSetting, setS }) {
                 )}
               </div>
             ))}
-            {/* Add color button */}
+            {/* Add color button — onBlur not onChange to avoid adding on every drag step */}
             <div style={{ position: "relative", width: 24, height: 24,
               border: `1px dashed ${S.borderColor}`, cursor: "pointer",
               display: "flex", alignItems: "center", justifyContent: "center",
               color: S.textDim, fontSize: 14, overflow: "hidden" }}
-              title="Add color to swatch">
+              title="Pick a color to add">
               +
-              <input type="color" defaultValue="#ffffff"
-                onChange={e => { if (e.target.value !== "#000000") setSetting("walletColors", [...S.walletColors, e.target.value]); }}
+              <input type="color" defaultValue="#00ff55"
+                onBlur={e => { setSetting("walletColors", [...S.walletColors, e.target.value]); e.target.value = "#00ff55"; }}
                 style={{ position: "absolute", inset: 0, opacity: 0, width: "100%", height: "100%", cursor: "pointer" }} />
             </div>
           </div>
@@ -4771,37 +4877,18 @@ function SettingsPanel({ S, setSetting, setS }) {
         {/* Graph */}
         <BorderCard S={S} style={{ padding: "18px 20px" }}>
           {sectionTitle("GRAPH")}
-          <SliderRow label="Line width"      k="graphLineWidth"     min={1}  max={6}   step={0.5}  S={S} onChange={setSetting} />
-
-        </BorderCard>
-
-        {/* Share card notch */}
-        <BorderCard S={S} style={{ padding: "18px 20px" }}>
-          {sectionTitle("SHARE CARD")}
-          <div style={{ color: S.textDim, fontSize: 9, fontFamily: "'DM Mono',monospace", marginBottom: 10 }}>
-            Ticket notch style — affects all rank cards
-          </div>
-          <div style={{ display: "flex", gap: 8 }}>
-            {[
-              { id: "semicircle", label: "SEMICIRCLE", desc: "curved arc notch" },
-              { id: "triangle",   label: "TRIANGLE",   desc: "pointed notch with rounded corners" },
-            ].map(opt => {
-              const active = (S.cardNotchStyle ?? "semicircle") === opt.id;
-              return (
-                <button key={opt.id} onClick={() => setSetting("cardNotchStyle", opt.id)}
-                  style={{
-                    flex: 1, background: active ? S.accentGreen + "18" : "none",
-                    border: `1px solid ${active ? S.accentGreen : S.borderColor}`,
-                    color: active ? S.accentGreen : S.textDim, cursor: "pointer",
-                    padding: "10px 8px", fontFamily: "'DM Mono',monospace",
-                    fontSize: 9, letterSpacing: ".1em", transition: "all .15s",
-                  }}>
-                  <div style={{ fontWeight: 700, marginBottom: 3 }}>{opt.label}</div>
-                  <div style={{ fontSize: 8, opacity: .6 }}>{opt.desc}</div>
-                </button>
-              );
-            })}
-          </div>
+          <SliderRow label="Line width" k="graphLineWidth" min={1} max={6} step={0.5} S={S} onChange={setSetting} />
+          <label style={{ display:"flex", alignItems:"center", gap:8, marginTop:10, cursor:"pointer" }}>
+            <input type="checkbox" checked={!!S.graphMergeTokens}
+              onChange={e => setSetting("graphMergeTokens", e.target.checked)}
+              style={{ accentColor: S.accentGreen }} />
+            <span style={{ fontFamily:"'DM Mono',monospace", fontSize:9, color:S.textMid, lineHeight:1.5 }}>
+              Merge same-token positions across wallets into one point
+              <span style={{ display:"block", color:S.textDim, fontSize:8 }}>
+                Tooltip shows per-wallet breakdown. Respects active wallet selection.
+              </span>
+            </span>
+          </label>
         </BorderCard>
 
         {/* Currency */}
@@ -5113,7 +5200,7 @@ export default function App() {
   }, [activeWallets, wallets]);
 
   // Always build curve from FULL history — positions need complete buy/sell history to be accurate
-  const fullCurve = useMemo(() => buildCurve(rawTrades), [rawTrades]);
+  const fullCurve = useMemo(() => S.graphMergeTokens ? buildMergedCurve(rawTrades) : buildCurve(rawTrades), [rawTrades, S.graphMergeTokens]);
 
   // Filter curve points by their closeTs to get the selected time window
   const pnlCurve = useMemo(() => {
@@ -5285,6 +5372,18 @@ export default function App() {
       {showShareModal && (() => {
         // If a specific day/month was clicked, filter curve to that period
         let ctxCurve = pnlCurve, ctxClosed = closed, ctxTotalPnl = totalPnl, ctxWinRate = winRate, ctxTf = tf;
+        // If a graph point was clicked, filter to that single token across active wallets
+        if (shareContext?.tokenPoint) {
+          const pt = shareContext.tokenPoint;
+          const mint = pt.mint;
+          const tokenTrades = rawTrades.filter(t => (t.mint ?? t.token) === mint);
+          ctxCurve = buildCurve(tokenTrades);
+          ctxClosed = ctxCurve.slice(1);
+          ctxTotalPnl = ctxCurve[ctxCurve.length-1]?.cumPnl ?? 0;
+          const ctxWins = ctxClosed.filter(p => p.tradePnl > 0).length;
+          ctxWinRate = ctxClosed.length ? ((ctxWins / ctxClosed.length) * 100).toFixed(2) : "0.00";
+          ctxTf = pt.label ?? pt.token ?? "TOKEN";
+        }
         if (shareContext?.dateKey) {
           const dk = shareContext.dateKey;
           const isMonth = dk.length === 7; // YYYY-MM
@@ -5566,7 +5665,8 @@ export default function App() {
                 })()}
               </div>
               <PnlGraph data={pnlCurve} color={activeColor} S={S} height={S.graphHeight ?? 315} wallets={wallets}
-                zoom={graphZoom} panX={graphPan} onZoomChange={setGraphZoom} onPanChange={setGraphPan} />
+                zoom={graphZoom} panX={graphPan} onZoomChange={setGraphZoom} onPanChange={setGraphPan}
+                onPointClick={(pt) => { setShareContext({ tokenPoint: pt }); setShowShareModal(true); }} />
             </BorderCard>
             <BorderCard S={S} style={{ padding: "16px 16px 10px" }}>
               <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 2 }}>
