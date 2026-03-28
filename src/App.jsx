@@ -8,14 +8,30 @@ const SOL_MINT = "So11111111111111111111111111111111111111112";
 
 // Stablecoins — filter from token positions. TOKEN/USDC pairs route through
 // USDC as an intermediate; we want the actual memecoin, not the stable.
+// Canonical stablecoin mint addresses on Solana
+// Keep this in sync with STABLE_MINTS in cloudflare-worker-v5.js
 const STABLE_MINTS = new Set([
   "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v", // USDC
-  "Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB", // USDT
-  "USDH1SM1ojwWUga67PGrgFWUHibbjqMvuMaDkRJTgkX",  // USDH
+  "Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB", // USDT (Tether)
+  "USDH1SM1ojwWUga67PGrgFWUHibbjqMvuMaDkRJTgkX",  // USDH (Hubble)
   "7kbnvuGBxxj8AG9qp8Scn56muWGaRaFqxg1FsRp3PEnn", // UXD
-  "USD1yTWrgkRm1UsKud8kFc6owNJGYaXh8t2PBB51Yw4",  // USD1
-  "2b1kV6DkPAnxd5ixfnxCpjxmKwqjjaYmCZfHsFu24GXo", // PYUSD
+  "USD1yTWrgkRm1UsKud8kFc6owNJGYaXh8t2PBB51Yw4",  // USD1 (WLFI)
+  "2b1kV6DkPAnxd5ixfnxCpjxmKwqjjaYmCZfHsFu24GXo", // PYUSD (PayPal)
+  "9n4nbM75f5Ui33ZbPYXn59EwSgE8CGsHtAeTH5YFeJ9E",  // BTC (wBTC) — not stable but routing
+  "EjmyN6qEC1Tf1JxiG1ae7UTJhUxSwk1TCWNWqxWV4J6o", // USDCet (Wormhole USDC)
+  "Ea5SjE2Y6yvCeW5dYTn7PYMuW5ikXkvbGdcmSnXeaLjS", // PAI
+  "CXLBjMMcwkc17GfJtBos6rQCo1ypeH6eDbB82Kby4MRm", // cashUSDC
 ]);
+
+// Symbol-based stable detection — fallback when mint isn't in the list
+// Catches new stablecoins, alternate mints, and any USD-pegged token by name
+const STABLE_SYMBOL_RE = /^(USDC?T?|USDT|USD[0-9]?|BUSD|DAI|FRAX|USDH|PYUSD|TUSD|GUSD|LUSD|EURC|EURS|PAI|USH|UXD|USDD|USDP|FDUSD|SUSD|USDB|USDE)$/i;
+
+function isStablecoin(mint, symbol) {
+  if (mint && STABLE_MINTS.has(mint)) return true;
+  if (symbol && STABLE_SYMBOL_RE.test(symbol.trim())) return true;
+  return false;
+}
 
 // Token symbol cache — seeded with known tokens
 const TOKEN_SYMBOL_CACHE = {
@@ -391,7 +407,7 @@ function buildCurve(trades) {
 
   for (const p of sorted) {
     const net = p.solOut - p.solIn; // negative if still holding
-    const isStable = STABLE_MINTS.has(p.mint ?? "");
+    const isStable = isStablecoin(p.mint, p.token);
     if (!isStable) cum += net; // stables don't count toward cumulative PnL
     const ts = p.lastSellTs ?? p.lastTs;
     curve.push({
@@ -442,7 +458,7 @@ function buildMergedCurve(trades) {
 
   for (const p of sorted) {
     const net = p.solOut - p.solIn;
-    const isStable = STABLE_MINTS.has(p.mint ?? "");
+    const isStable = isStablecoin(p.mint, p.token);
     if (!isStable) cum += net; // stables don't count toward cumulative PnL
     const ts = p.lastSellTs ?? p.lastTs;
     // Build per-wallet breakdown
@@ -906,7 +922,7 @@ function PnlGraph({ data, color, S, height = 210, wallets = [], zoom: zoomProp, 
 
         {/* Trade point shapes */}
         {points.slice(1).map((p, i) => {
-          const isStable = p.d.isStable ?? false;
+          const isStable = p.d.isStable ?? isStablecoin(p.d.mint, p.d.token);
           const col = isStable ? "#555566" : ptColor(p.d.tradePnl);
           const isHov = hov === i + 1;
           const rule = resolveShape(p.d.tradePnl, rules);
@@ -1073,7 +1089,7 @@ function buildDayMap(trades, tzOffset = 0) {
   for (const [k, p] of Object.entries(pos)) {
     // k = "wallet:mint" or "mint" — extract mint
     const mint = k.includes(":") ? k.split(":").slice(1).join(":") : k;
-    if (STABLE_MINTS.has(mint)) continue;
+    if (isStablecoin(mint, p.token)) continue;
     const day = p.lastSellDay ?? p.lastDay;
     if (!map[day]) map[day] = { pnl: 0, trades: 0, wins: 0, losses: 0, volBought: 0, volSold: 0 };
     const net = p.solOut - p.solIn;
