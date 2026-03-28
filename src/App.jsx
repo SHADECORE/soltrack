@@ -2671,7 +2671,7 @@ function useWalletData(S, clientToken = "") {
 }
 
 // ── ONBOARDING ────────────────────────────────────────────────────────────────
-function Onboarding({ S, workerUrl: workerUrlProp, onComplete }) {
+function Onboarding({ S, workerUrl: workerUrlProp, onComplete, relogin = false }) {
   const [workerUrl] = useState(workerUrlProp || "");
   const [step, setStep] = useState("connect"); // "connect" | "helius"
   const [err, setErr] = useState("");
@@ -2714,8 +2714,13 @@ function Onboarding({ S, workerUrl: workerUrlProp, onComplete }) {
       const { token } = await verifyRes.json();
       localStorage.setItem("soltrack_user_token", token);
 
-      // Check if Helius key already stored
-      // If this is a re-login (session expired), key is already on server — skip helius step
+      // Re-login: key is already on server, skip has-key check entirely
+      if (relogin) {
+        onComplete(token);
+        return;
+      }
+
+      // First login: check if Helius key already stored (e.g. existing user on new device)
       let hasKey = false;
       try {
         const hasKeyRes = await fetch(`${base}/auth/has-key`, {
@@ -5226,7 +5231,9 @@ export default function App() {
   // ── ONBOARDING GATE ──────────────────────────────────────────────────────────
   const userToken = useMemo(() => localStorage.getItem("soltrack_user_token") ?? "", []);
   if (!userToken) {
-    return <Onboarding S={S} workerUrl={S.workerUrl} onComplete={(token) => {
+    const isRelogin = localStorage.getItem("soltrack_relogin") === "1";
+    return <Onboarding S={S} workerUrl={S.workerUrl} relogin={isRelogin} onComplete={(token) => {
+      localStorage.removeItem("soltrack_relogin");
       localStorage.setItem("soltrack_user_token", token);
       window.location.reload();
     }} />;
@@ -5404,7 +5411,7 @@ export default function App() {
           <span style={{ fontFamily: "'DM Mono',monospace", fontSize: 10, color: "#ff6666", letterSpacing: ".08em" }}>
             ⚠ Your session has expired (24h limit). Sign out and sign back in to continue.
           </span>
-          <button onClick={() => { localStorage.removeItem("soltrack_user_token"); window.location.reload(); }}
+          <button onClick={() => { localStorage.setItem("soltrack_relogin","1"); localStorage.removeItem("soltrack_user_token"); window.location.reload(); }}
             style={{ background: "#ff0033", border: "none", color: "#fff", fontFamily: "'DM Mono',monospace",
               fontSize: 9, padding: "5px 14px", cursor: "pointer", letterSpacing: ".1em", fontWeight: 700 }}>
             SIGN IN AGAIN
