@@ -724,12 +724,27 @@ function PnlGraph({ data, color, S, height = 210, wallets = [], zoom: zoomProp, 
     return result.sort((a, b) => (a.idx ?? 0) - (b.idx ?? 0));
   }, [rawVisData, S.graphLodPoints]);
 
-  const vals = visData.map(d => d.cumPnl);
+  // Separate stable from non-stable for axis and line computation
+  // Stables must not affect the Y axis range or the line path
+  const nonStableVisData = visData.filter(d => !(d.isStable ?? isStablecoin(d.mint, d.token)));
+  const vals = (nonStableVisData.length ? nonStableVisData : visData).map(d => d.cumPnl);
   const minV = Math.min(...vals), maxV = Math.max(...vals);
   const rangeV = maxV - minV || 1;
   const toX = (i) => PAD.left + (i / (visData.length - 1 || 1)) * innerW;
   const toY = (v)  => PAD.top  + (1 - (v - minV) / rangeV) * (H - PAD.top - PAD.bottom);
+  // All points (for dots), line points (non-stable only, for the polyline)
   const points = visData.map((d, i) => ({ x: toX(i), y: toY(d.cumPnl), d }));
+  // For the line: skip stable points — insert a break by splitting into segments
+  const lineSegments = (() => {
+    const segs = [], cur = [];
+    for (const p of points) {
+      const stable = p.d.isStable ?? isStablecoin(p.d.mint, p.d.token);
+      if (stable) { if (cur.length > 1) segs.push([...cur]); cur.length = 0; }
+      else cur.push(p);
+    }
+    if (cur.length > 1) segs.push(cur);
+    return segs;
+  })();
 
   // Simple green/red point colors — no intensity normalization
   const ptColor = (pnl) => pnl > 0 ? S.accentGreen : pnl < 0 ? S.accentRed : "#888888";
@@ -874,14 +889,14 @@ function PnlGraph({ data, color, S, height = 210, wallets = [], zoom: zoomProp, 
             fill={S.textDim} fontSize="9" fontFamily="DM Mono">{t.v}</text>
         ))}
 
-        {/* Glow layer */}
-        {S.graphGlowIntensity > 0 && (
-          <polyline points={points.map(p => `${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(" ")} fill="none"
+        {/* Glow layer — follows non-stable line segments */}
+        {S.graphGlowIntensity > 0 && lineSegments.map((seg, si) => (
+          <polyline key={si} points={seg.map(p => `${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(" ")} fill="none"
             stroke={`rgba(${rr},${gg},${bb},${S.graphGlowIntensity * 0.012})`}
             strokeWidth={S.graphLineWidth + S.graphGlowWidth * 0.18}
             strokeLinejoin="round" strokeLinecap="round"
             style={{ filter: `blur(${S.graphGlowWidth * 0.28}px)` }} />
-        )}
+        ))}
 
         {/* Zero line */}
         {minV < 0 && maxV > 0 && (
@@ -889,18 +904,20 @@ function PnlGraph({ data, color, S, height = 210, wallets = [], zoom: zoomProp, 
             stroke={S.textDim} strokeWidth="1" strokeDasharray="3,4" opacity="0.35" />
         )}
 
-        {/* Colored segments */}
-        {points.slice(1).map((p, i) => {
-          const prev = points[i];
-          return (
-            <line key={i}
-              x1={prev.x.toFixed(1)} y1={prev.y.toFixed(1)}
-              x2={p.x.toFixed(1)}   y2={p.y.toFixed(1)}
-              stroke={`url(#seg${i})`}
-              strokeWidth={S.graphLineWidth}
-              strokeLinecap="round" />
-          );
-        })}
+        {/* Colored segments — stables excluded from line */}
+        {lineSegments.map((seg, si) =>
+          seg.slice(1).map((p, i) => {
+            const prev = seg[i];
+            return (
+              <line key={`${si}_${i}`}
+                x1={prev.x.toFixed(1)} y1={prev.y.toFixed(1)}
+                x2={p.x.toFixed(1)}   y2={p.y.toFixed(1)}
+                stroke={`url(#seg${points.indexOf(prev)})`}
+                strokeWidth={S.graphLineWidth}
+                strokeLinecap="round" />
+            );
+          })
+        )}
 
         {/* Crosshair — rendered BEFORE shapes so it sits behind dots */}
         {hovP && hovD && hovD.tradePnl !== undefined && (() => {
