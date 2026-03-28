@@ -4269,7 +4269,7 @@ function ShareCardInner({ S, pnlCurve, closed, totalPnl, winRate, tf, walletLabe
   );
 }
 // Share modal — preview only, card appearance configured per-rank in admin
-function ShareModal({ S, pnlCurve, closed, totalPnl, winRate, tf, walletLabel, onClose }) {
+function ShareModal({ S, setSetting, pnlCurve, closed, totalPnl, winRate, tf, walletLabel, onClose }) {
   const ranks = S.pnlRanks ?? PNL_RANKS;
   const rank  = getPnlRank(totalPnl, ranks);
   const captureRef = useRef(null);
@@ -4454,73 +4454,91 @@ function ShareModal({ S, pnlCurve, closed, totalPnl, winRate, tf, walletLabel, o
           </div>
         </div>
 
-        {/* Footer */}
-        <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between',
-          padding:'10px 18px', borderTop:'1px solid #1a1a1a', gap:12 }}>
-          <div style={{ display:'flex', alignItems:'center', gap:12, flex:1 }}>
-            {/* Notch style toggle */}
-            <div style={{ display:'flex', gap:3, flexShrink:0 }}>
-              {[{id:"semicircle",label:"◠"},{id:"triangle",label:"◁"}].map(opt => {
-                const active = (S.cardNotchStyle ?? "semicircle") === opt.id;
-                return (
-                  <button key={opt.id} title={opt.id + " notch"}
-                    onClick={() => setSetting("cardNotchStyle", opt.id)}
-                    style={{ background: active ? accentColor+"22" : "none",
-                      border:`1px solid ${active ? accentColor : "#333"}`,
-                      color: active ? accentColor : "#555", cursor:"pointer",
-                      padding:"3px 7px", fontFamily:"'DM Mono',monospace",
-                      fontSize:10, lineHeight:1, transition:"all .12s" }}>
-                    {opt.label}
-                  </button>
-                );
-              })}
+        {/* Settings panel */}
+        <div style={{ borderTop:'1px solid #1a1a1a', padding:'14px 18px', display:'flex', flexDirection:'column', gap:14 }}>
+
+          {/* Row 1: label + notch */}
+          <div style={{ display:'flex', gap:16, alignItems:'flex-start' }}>
+            {/* Wallet label */}
+            <div style={{ flex:1 }}>
+              <div style={{ ...mono, fontSize:7, color:'#444', letterSpacing:'.12em', marginBottom:5 }}>WALLET LABEL</div>
+              <div style={{ display:'flex', alignItems:'center', gap:6 }}>
+                <input value={customLabel} onChange={e => setCustomLabel(e.target.value)}
+                  placeholder={walletLabel} maxLength={32}
+                  style={{ flex:1, background:'#111', border:'1px solid #222', color:'#aaa',
+                    outline:'none', fontFamily:"'DM Mono',monospace", fontSize:9,
+                    padding:'5px 8px', letterSpacing:'.04em' }} />
+                {customLabel && (
+                  <button onMouseDown={e => { e.preventDefault(); setCustomLabel(''); }}
+                    style={{ background:'none', border:'1px solid #222', color:'#555',
+                      cursor:'pointer', fontSize:10, padding:'4px 7px', lineHeight:1 }}>×</button>
+                )}
+              </div>
             </div>
-            {/* Chart toggle */}
-            <label style={{ display:'flex', alignItems:'center', gap:5, cursor:'pointer', flexShrink:0 }}>
-              <input type="checkbox" checked={showChart} onChange={e => setShowChart(e.target.checked)}
-                style={{ accentColor, cursor:'pointer' }}/>
-              <span style={{ ...mono, fontSize:8, color:'#666' }}>chart</span>
-            </label>
-            {/* Minor text scale */}
-            <div style={{ display:'flex', alignItems:'center', gap:5, flexShrink:0 }}>
-              <span style={{ ...mono, fontSize:8, color:'#555' }}>text</span>
-              <input type="range" min={0.4} max={1.8} step={0.05} value={cardTextScale}
-                onChange={e => setCardTextScale(+e.target.value)}
-                style={{ width:60, accentColor }} />
-              <span style={{ ...mono, fontSize:8, color: accentColor }}>{Math.round(cardTextScale*100)}%</span>
-            </div>
-            {/* Custom label */}
-            <div style={{ display:'flex', alignItems:'center', gap:5, flex:1, minWidth:0 }}>
-              <span style={{ ...mono, fontSize:8, color:'#444', flexShrink:0 }}>label:</span>
-              <input
-                value={customLabel}
-                onChange={e => setCustomLabel(e.target.value)}
-                placeholder={walletLabel}
-                maxLength={32}
-                style={{ flex:1, minWidth:0, background:'transparent', border:'none',
-                  borderBottom:`1px solid #333`, color:'#aaa', outline:'none',
-                  fontFamily:"'DM Mono',monospace", fontSize:9, padding:'2px 4px',
-                  letterSpacing:'.04em' }}
-              />
-              {customLabel && (
-                <button onMouseDown={e => { e.preventDefault(); setCustomLabel(''); }}
-                  style={{ background:'none', border:'none', color:'#444', cursor:'pointer',
-                    fontSize:11, lineHeight:1, padding:'0 2px', flexShrink:0 }}>×</button>
-              )}
+
+            {/* Notch style */}
+            <div style={{ flexShrink:0 }}>
+              <div style={{ ...mono, fontSize:7, color:'#444', letterSpacing:'.12em', marginBottom:5 }}>NOTCH</div>
+              <div style={{ display:'flex', gap:4 }}>
+                {[
+                  { id:'semicircle', label:'SEMI', title:'Semicircle notch — curved arc' },
+                  { id:'triangle',   label:'TRI',  title:'Triangle notch — pointed with rounded corners' },
+                ].map(opt => {
+                  const active = (S.cardNotchStyle ?? 'semicircle') === opt.id;
+                  return (
+                    <button key={opt.id} title={opt.title}
+                      onClick={() => setSetting('cardNotchStyle', opt.id)}
+                      style={{ ...mono, fontSize:8, padding:'5px 10px',
+                        background: active ? accentColor+'1a' : '#111',
+                        border:`1px solid ${active ? accentColor : '#222'}`,
+                        color: active ? accentColor : '#555',
+                        cursor:'pointer', letterSpacing:'.08em', transition:'all .12s' }}>
+                      {opt.label}
+                    </button>
+                  );
+                })}
+              </div>
             </div>
           </div>
-          <div style={{ display:'flex', gap:8 }}>
+
+          {/* Row 2: chart toggle + text scale */}
+          <div style={{ display:'flex', gap:16, alignItems:'center' }}>
+            {/* Chart */}
+            <div style={{ flexShrink:0 }}>
+              <div style={{ ...mono, fontSize:7, color:'#444', letterSpacing:'.12em', marginBottom:5 }}>CHART</div>
+              <label style={{ display:'flex', alignItems:'center', gap:6, cursor:'pointer' }}>
+                <input type="checkbox" checked={showChart} onChange={e => setShowChart(e.target.checked)}
+                  style={{ accentColor, cursor:'pointer', width:13, height:13 }}/>
+                <span style={{ ...mono, fontSize:8, color: showChart ? accentColor : '#555' }}>
+                  {showChart ? 'ON' : 'OFF'}
+                </span>
+              </label>
+            </div>
+
+            {/* Text scale */}
+            <div style={{ flex:1 }}>
+              <div style={{ ...mono, fontSize:7, color:'#444', letterSpacing:'.12em', marginBottom:5 }}>
+                TEXT SIZE — <span style={{ color: accentColor }}>{Math.round(cardTextScale*100)}%</span>
+              </div>
+              <input type="range" min={0.4} max={1.8} step={0.05} value={cardTextScale}
+                onChange={e => setCardTextScale(+e.target.value)}
+                style={{ width:'100%', accentColor, display:'block' }} />
+            </div>
+          </div>
+
+          {/* Row 3: action buttons */}
+          <div style={{ display:'flex', gap:8, justifyContent:'flex-end' }}>
             <button onClick={doCopy} disabled={!!capturing}
               style={{ ...mono, background:'none', border:`1px solid ${accentColor}55`,
-                color:accentColor, cursor:'pointer', padding:'7px 14px', fontSize:9,
+                color:accentColor, cursor:'pointer', padding:'8px 18px', fontSize:9,
                 letterSpacing:'.1em', opacity:capturing?0.5:1, transition:'opacity .15s' }}>
-              {capturing==='copied' ? '✓ COPIED' : capturing==='copy' ? '…' : '⎘ COPY'}
+              {capturing==='copied' ? '✓ COPIED' : capturing==='copy' ? '…' : '⎘ COPY IMAGE'}
             </button>
             <button onClick={doCapture} disabled={!!capturing}
-              style={{ ...mono, background:'none', border:`1px solid ${accentColor}`,
-                color:accentColor, cursor:'pointer', padding:'7px 20px', fontSize:9,
-                letterSpacing:'.1em', boxShadow:`0 0 10px ${accentColor}22`,
-                opacity:capturing?0.5:1, transition:'opacity .15s' }}>
+              style={{ ...mono, background:accentColor+'18', border:`1px solid ${accentColor}`,
+                color:accentColor, cursor:'pointer', padding:'8px 24px', fontSize:9,
+                letterSpacing:'.1em', boxShadow:`0 0 12px ${accentColor}22`,
+                opacity:capturing?0.5:1, transition:'opacity .15s', fontWeight:700 }}>
               {capturing==='download' ? 'RENDERING…' : '↓ DOWNLOAD PNG'}
             </button>
           </div>
@@ -5434,7 +5452,7 @@ export default function App() {
         }
         return (
           <ShareModal
-            S={S} pnlCurve={ctxCurve} closed={ctxClosed}
+            S={S} setSetting={setSetting} pnlCurve={ctxCurve} closed={ctxClosed}
             totalPnl={ctxTotalPnl} winRate={ctxWinRate} tf={ctxTf}
             walletLabel={isCombined ? `${wallets.length} WALLETS` : singleWallet?.label?.toUpperCase() ?? "WALLET"}
             onClose={() => { setShowShareModal(false); setShareContext(null); }}
