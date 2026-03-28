@@ -724,27 +724,55 @@ function PnlGraph({ data, color, S, height = 210, wallets = [], zoom: zoomProp, 
     return result.sort((a, b) => (a.idx ?? 0) - (b.idx ?? 0));
   }, [rawVisData, S.graphLodPoints]);
 
-  // Separate stable from non-stable for axis and line computation
-  // Stables must not affect the Y axis range or the line path
+  // Stables excluded from axis range and line — they float as annotations above the line
   const nonStableVisData = visData.filter(d => !(d.isStable ?? isStablecoin(d.mint, d.token)));
   const vals = (nonStableVisData.length ? nonStableVisData : visData).map(d => d.cumPnl);
   const minV = Math.min(...vals), maxV = Math.max(...vals);
   const rangeV = maxV - minV || 1;
   const toX = (i) => PAD.left + (i / (visData.length - 1 || 1)) * innerW;
   const toY = (v)  => PAD.top  + (1 - (v - minV) / rangeV) * (H - PAD.top - PAD.bottom);
-  // All points (for dots), line points (non-stable only, for the polyline)
-  const points = visData.map((d, i) => ({ x: toX(i), y: toY(d.cumPnl), d }));
-  // For the line: skip stable points — insert a break by splitting into segments
-  const lineSegments = (() => {
-    const segs = [], cur = [];
-    for (const p of points) {
-      const stable = p.d.isStable ?? isStablecoin(p.d.mint, p.d.token);
-      if (stable) { if (cur.length > 1) segs.push([...cur]); cur.length = 0; }
-      else cur.push(p);
+
+  // Build two arrays:
+  // linePoints — non-stable only, drawn as the continuous line
+  // stablePoints — stable only, floated 22px above the nearest preceding line point Y
+  const linePoints = [];
+  const stablePoints = [];
+  let lastLineY = toY(0); // fallback anchor
+
+  visData.forEach((d, i) => {
+    const stable = d.isStable ?? isStablecoin(d.mint, d.token);
+    const x = toX(i);
+    if (stable) {
+      // Float 22px above the current line anchor, never above top padding
+      const floatY = Math.max(PAD.top + 8, lastLineY - 22);
+      stablePoints.push({ x, y: floatY, d });
+    } else {
+      const y = toY(d.cumPnl);
+      lastLineY = y;
+      linePoints.push({ x, y, d });
     }
-    if (cur.length > 1) segs.push(cur);
-    return segs;
+  });
+
+  // For hover detection we still need all points in order (index = hov index)
+  // Build a unified points array: stable points get their floatY, line points get real Y
+  const points = (() => {
+    let lastY = toY(0);
+    return visData.map((d, i) => {
+      const stable = d.isStable ?? isStablecoin(d.mint, d.token);
+      const x = toX(i);
+      if (stable) {
+        const floatY = Math.max(PAD.top + 8, lastY - 22);
+        return { x, y: floatY, d };
+      } else {
+        const y = toY(d.cumPnl);
+        lastY = y;
+        return { x, y, d };
+      }
+    });
   })();
+
+  // lineSegments for rendering the continuous line (non-stable only)
+  const lineSegments = linePoints.length > 1 ? [linePoints] : [];
 
   // Simple green/red point colors — no intensity normalization
   const ptColor = (pnl) => pnl > 0 ? S.accentGreen : pnl < 0 ? S.accentRed : "#888888";
@@ -867,9 +895,9 @@ function PnlGraph({ data, color, S, height = 210, wallets = [], zoom: zoomProp, 
         style={{ display: "block", overflow: "visible" }}>
 
         <defs>
-          {/* Segment gradients: prev-point color → this-point color */}
-          {points.slice(1).map((p, i) => {
-            const prev = points[i];
+          {/* Segment gradients keyed by linePoints index */}
+          {linePoints.slice(1).map((p, i) => {
+            const prev = linePoints[i];
             return (
               <linearGradient key={i} id={`seg${i}`} x1={prev.x} y1="0" x2={p.x} y2="0" gradientUnits="userSpaceOnUse">
                 <stop offset="0%"   stopColor={ptColor(prev.d.tradePnl)} />
@@ -889,14 +917,14 @@ function PnlGraph({ data, color, S, height = 210, wallets = [], zoom: zoomProp, 
             fill={S.textDim} fontSize="9" fontFamily="DM Mono">{t.v}</text>
         ))}
 
-        {/* Glow layer — follows non-stable line segments */}
-        {S.graphGlowIntensity > 0 && lineSegments.map((seg, si) => (
-          <polyline key={si} points={seg.map(p => `${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(" ")} fill="none"
+        {/* Glow layer */}
+        {S.graphGlowIntensity > 0 && linePoints.length > 1 && (
+          <polyline points={linePoints.map(p => `${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(" ")} fill="none"
             stroke={`rgba(${rr},${gg},${bb},${S.graphGlowIntensity * 0.012})`}
             strokeWidth={S.graphLineWidth + S.graphGlowWidth * 0.18}
             strokeLinejoin="round" strokeLinecap="round"
             style={{ filter: `blur(${S.graphGlowWidth * 0.28}px)` }} />
-        ))}
+        )}
 
         {/* Zero line */}
         {minV < 0 && maxV > 0 && (
@@ -904,20 +932,18 @@ function PnlGraph({ data, color, S, height = 210, wallets = [], zoom: zoomProp, 
             stroke={S.textDim} strokeWidth="1" strokeDasharray="3,4" opacity="0.35" />
         )}
 
-        {/* Colored segments — stables excluded from line */}
-        {lineSegments.map((seg, si) =>
-          seg.slice(1).map((p, i) => {
-            const prev = seg[i];
-            return (
-              <line key={`${si}_${i}`}
-                x1={prev.x.toFixed(1)} y1={prev.y.toFixed(1)}
-                x2={p.x.toFixed(1)}   y2={p.y.toFixed(1)}
-                stroke={`url(#seg${points.indexOf(prev)})`}
-                strokeWidth={S.graphLineWidth}
-                strokeLinecap="round" />
-            );
-          })
-        )}
+        {/* Colored segments — continuous through non-stable points only */}
+        {linePoints.slice(1).map((p, i) => {
+          const prev = linePoints[i];
+          return (
+            <line key={i}
+              x1={prev.x.toFixed(1)} y1={prev.y.toFixed(1)}
+              x2={p.x.toFixed(1)}   y2={p.y.toFixed(1)}
+              stroke={`url(#seg${i})`}
+              strokeWidth={S.graphLineWidth}
+              strokeLinecap="round" />
+          );
+        })}
 
         {/* Crosshair — rendered BEFORE shapes so it sits behind dots */}
         {hovP && hovD && hovD.tradePnl !== undefined && (() => {
