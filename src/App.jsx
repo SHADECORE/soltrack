@@ -1357,7 +1357,7 @@ function CalendarHeatmap({ trades, tf, tzOffset = 0, S, onDayClick }) {
           }}>
             <div className="sol-tt-head" style={{ fontFamily: "'Orbitron',monospace", fontSize: 9, color: S.textDim, letterSpacing: ".1em", marginBottom: 6 }}>{m.key}</div>
             <div className="sol-tt-val" style={{ color: col, fontWeight: 600, fontSize: 14, marginBottom: 6, textShadow: `0 0 8px ${col}55` }}>
-              {m.pnl >= 0 ? "+" : ""}{fmt(m.pnl, 4)} SOL
+              {fmtC(m.pnl, S, 4)}
             </div>
             <div style={{ color: S.textDim, marginBottom: 2 }}>
               Win / Loss days: <span style={{ color: S.accentGreen }}>{m.winDays}W</span> / <span style={{ color: S.accentRed }}>{m.lossDays}L</span> / {m.activeDays}d
@@ -1387,7 +1387,7 @@ function CalendarHeatmap({ trades, tf, tzOffset = 0, S, onDayClick }) {
             {hovData ? (
               <>
                 <div className="sol-tt-val" style={{ color: hovData.pnl >= 0 ? S.accentGreen : S.accentRed, fontWeight: 600, fontSize: 14, marginBottom: 6, textShadow: `0 0 8px ${hovData.pnl >= 0 ? S.accentGreen : S.accentRed}55` }}>
-                  {hovData.pnl >= 0 ? "+" : ""}{fmt(hovData.pnl, 4)} SOL
+                  {fmtC(hovData.pnl, S, 4)}
                 </div>
                 <div style={{ color: S.textDim, marginBottom: 2 }}>Wins / Losses: <span style={{ color: S.accentGreen }}>{hovData.wins}</span> / <span style={{ color: S.accentRed }}>{hovData.losses}</span></div>
                 <div style={{ color: S.textDim, marginBottom: 2 }}>Volume bought: <span style={{ color: S.textPrimary }}>{fmt(hovData.volBought, 3)} SOL</span></div>
@@ -2545,7 +2545,7 @@ function TradingJournal({ closed, S, terminalId, mistakeTags, setMistakeTags }) 
                     <td style={{ padding: "4px 10px", whiteSpace: "nowrap" }}>
                       <span style={{ ...mono, fontWeight: 700, color: pnlColor(pos.tradePnl),
                         fontSize: 10, textShadow: `0 0 8px ${pnlColor(pos.tradePnl)}44` }}>
-                        {pos.tradePnl >= 0 ? "+" : ""}{fmt(pos.tradePnl, 4)} SOL
+                        {fmtC(pos.tradePnl, S, 4)}
                       </span>
                     </td>
                     <td style={{ padding: "4px 6px", minWidth: 80 }}>
@@ -2997,9 +2997,20 @@ function AdminPanel({ S, setSetting }) {
   }, []);
 
   // Live-editable rank list (seeded from S.pnlRanks)
+  // Syncs when S.pnlRanks changes (e.g. after /ranks fetch returns server values)
   const [ranks, setRanks] = useState(() =>
     JSON.parse(JSON.stringify(S?.pnlRanks ?? DEFAULT_SETTINGS.pnlRanks))
   );
+  const prevPnlRanksRef = React.useRef(S?.pnlRanks);
+  React.useEffect(() => {
+    // Only re-seed if pnlRanks reference changed AND user hasn't started editing
+    // (compare by reference — setSetting always creates a new array)
+    if (S?.pnlRanks !== prevPnlRanksRef.current) {
+      prevPnlRanksRef.current = S?.pnlRanks;
+      setRanks(JSON.parse(JSON.stringify(S?.pnlRanks ?? DEFAULT_SETTINGS.pnlRanks)));
+      setSelectedRankIdx(0);
+    }
+  }, [S?.pnlRanks]);
   const [selectedRankIdx, setSelectedRankIdx] = useState(0);
   const updateRank = (i, k, v) => setRanks(prev => prev.map((r, j) => j === i ? { ...r, [k]: v } : r));
   const addRank = () => setRanks(prev => [...prev, {
@@ -4233,11 +4244,13 @@ function ShareCardInner({ S, pnlCurve, closed, totalPnl, winRate, tf, walletLabe
       <text x={PAD} y="192" fontFamily="'Orbitron',monospace" fontWeight="900"
         fontSize={pnlFontSize} fill={pnlColor} letterSpacing="-2"
         style={{ filter:`drop-shadow(0 0 18px ${pnlColor}66)` }}>
-        {isPos ? '+' : '-'}{fmt(Math.abs(totalPnl), 2)}
+        {isPos ? '+' : ''}{fmtC(totalPnl, S, 2)}
       </text>
       <text x={PAD} y="212" fontFamily="'Orbitron',monospace"
         fontSize={c.solFontSize ?? 9}
-        fill={c.minorTextColor ?? "rgba(255,255,255,0.18)"} letterSpacing="5">SOL</text>
+        fill={c.minorTextColor ?? "rgba(255,255,255,0.18)"} letterSpacing="5">
+        {(S?.currency && S.currency !== "SOL") ? S.currency : "SOL"}
+      </text>
 
       {/* % return */}
       <text x={PAD} y="244" fontFamily="'Orbitron',monospace" fontWeight="700"
