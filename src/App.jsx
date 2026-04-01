@@ -4054,7 +4054,7 @@ const RANK_SHAPE_NAMES = Object.keys(RANK_SHAPE_FNS);
 // Tiny inline SVG curve for share card
 
 // The actual share card — diagonal design
-function ShareCardInner({ S, pnlCurve, closed, totalPnl, winRate, tf, walletLabel, _overrideRank }) {
+function ShareCardInner({ S, pnlCurve, closed, totalPnl, winRate, tf, walletLabel, _overrideRank, cardPnlCompact = false }) {
   const ranks = S.pnlRanks ?? PNL_RANKS;
   const rank  = _overrideRank ?? getPnlRank(totalPnl, ranks);
 
@@ -4154,12 +4154,28 @@ function ShareCardInner({ S, pnlCurve, closed, totalPnl, winRate, tf, walletLabe
                      : rank.name.length > 6 ? Math.round(baseFontSize * 0.9)
                      : baseFontSize;
 
-  // ── PnL font size (auto-scales by magnitude) ─────────────────────
-  const maxPnlFont  = 82;
-  const pnlFontSize = Math.abs(totalPnl) >= 10000 ? Math.round(maxPnlFont * 0.50)
-                    : Math.abs(totalPnl) >= 1000  ? Math.round(maxPnlFont * 0.63)
-                    : Math.abs(totalPnl) >= 100   ? Math.round(maxPnlFont * 0.76)
-                    : Math.abs(totalPnl) >= 10    ? Math.round(maxPnlFont * 0.92)
+  // ── PnL display string + font size (currency-aware, compact-aware) ────
+  const maxPnlFont = 82;
+  const _displayCur = S?.currency ?? "SOL";
+  const _displayRaw = solToDisplay(totalPnl, _displayCur) ?? totalPnl;
+  const _useCompact = cardPnlCompact && Math.abs(_displayRaw) >= 1000;
+  const displayStr = (() => {
+    const sign = totalPnl < 0 ? "-" : "+";
+    if (_useCompact) {
+      const k = (Math.abs(_displayRaw) / 1000).toFixed(1);
+      const sym = _displayCur !== "SOL" ? (CURRENCY_SYMBOLS[_displayCur] ?? _displayCur + " ") : "";
+      return sign + sym + k + "k";
+    }
+    return fmtC(totalPnl, S, 2);
+  })();
+  const _displayMag = _useCompact ? Math.abs(_displayRaw) / 1000 : Math.abs(_displayRaw);
+  const _strLen = displayStr.replace(/[^0-9.,]/g, "").length;
+  const pnlFontSize = _strLen >= 8 ? Math.round(maxPnlFont * 0.44)
+                    : _strLen >= 6 ? Math.round(maxPnlFont * 0.55)
+                    : _displayMag >= 10000 ? Math.round(maxPnlFont * 0.50)
+                    : _displayMag >= 1000  ? Math.round(maxPnlFont * 0.63)
+                    : _displayMag >= 100   ? Math.round(maxPnlFont * 0.76)
+                    : _displayMag >= 10    ? Math.round(maxPnlFont * 0.92)
                     : maxPnlFont;
 
   // ── Curve ────────────────────────────────────────────────────────
@@ -4244,12 +4260,12 @@ function ShareCardInner({ S, pnlCurve, closed, totalPnl, winRate, tf, walletLabe
       <text x={PAD} y="192" fontFamily="'Orbitron',monospace" fontWeight="900"
         fontSize={pnlFontSize} fill={pnlColor} letterSpacing="-2"
         style={{ filter:`drop-shadow(0 0 18px ${pnlColor}66)` }}>
-        {isPos ? '+' : ''}{fmtC(totalPnl, S, 2)}
+        {displayStr}
       </text>
       <text x={PAD} y="212" fontFamily="'Orbitron',monospace"
         fontSize={c.solFontSize ?? 9}
         fill={c.minorTextColor ?? "rgba(255,255,255,0.18)"} letterSpacing="5">
-        {(S?.currency && S.currency !== "SOL") ? S.currency : "SOL"}
+        {(_displayCur && _displayCur !== "SOL") ? _displayCur : "SOL"}
       </text>
 
       {/* % return */}
@@ -4507,6 +4523,7 @@ function ShareModal({ S, setSetting, pnlCurve, closed, totalPnl, winRate, tf, wa
             <ShareCardInner S={S} pnlCurve={pnlCurve} closed={closed}
               totalPnl={totalPnl} winRate={winRate} tf={tf}
               walletLabel={customLabel.trim() || walletLabel}
+              cardPnlCompact={cardPnlCompact}
               _overrideRank={previewRank}/>
           </div>
         </div>
@@ -4558,7 +4575,7 @@ function ShareModal({ S, setSetting, pnlCurve, closed, totalPnl, winRate, tf, wa
             </div>
           </div>
 
-          {/* Row 2: chart toggle + text scale */}
+          {/* Row 2: chart toggle + compact toggle + text scale */}
           <div style={{ display:'flex', gap:16, alignItems:'center' }}>
             {/* Chart */}
             <div style={{ flexShrink:0 }}>
@@ -4569,6 +4586,15 @@ function ShareModal({ S, setSetting, pnlCurve, closed, totalPnl, winRate, tf, wa
                 <span style={{ ...mono, fontSize:8, color: showChart ? accentColor : '#555' }}>
                   {showChart ? 'ON' : 'OFF'}
                 </span>
+              </label>
+            </div>
+            {/* Compact PnL */}
+            <div style={{ flexShrink:0 }}>
+              <div style={{ ...mono, fontSize:7, color:'#444', letterSpacing:'.12em', marginBottom:5 }}>COMPACT</div>
+              <label style={{ display:'flex', alignItems:'center', gap:6, cursor:'pointer' }}>
+                <input type="checkbox" checked={cardPnlCompact} onChange={e => setCardPnlCompact(e.target.checked)}
+                  style={{ accentColor, cursor:'pointer', width:13, height:13 }}/>
+                <span style={{ ...mono, fontSize:8, color: cardPnlCompact ? accentColor : '#555' }}>1k</span>
               </label>
             </div>
 
