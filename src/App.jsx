@@ -528,8 +528,12 @@ function fmtC(solAmount, S, d) {
   const cur = S?.currency ?? "SOL";
   const converted = solToDisplay(solAmount, cur);
   const decimals = d ?? CURRENCY_DECIMALS[cur] ?? 2;
-  if (converted === null) return fmt(solAmount, d ?? 3) + " SOL"; // fallback
-  return cur === "SOL" ? fmt(converted, decimals) + " SOL" : (CURRENCY_SYMBOLS[cur] ? CURRENCY_SYMBOLS[cur] + fmt(converted, decimals) : cur + " " + fmt(converted, decimals));
+  if (converted === null) { const s = solAmount < 0 ? "-" : "+"; return s + fmt(Math.abs(solAmount), d ?? 3) + " SOL"; }
+  const absStr = fmt(Math.abs(converted), decimals);
+  const sign = converted < 0 ? "-" : "+";
+  if (cur === "SOL") return sign + absStr + " SOL";
+  const sym = CURRENCY_SYMBOLS[cur] ?? (cur + " ");
+  return sign + sym + absStr;
 }
 
 // ── GLOBAL SPOTLIGHT ──────────────────────────────────────────────────────────
@@ -981,7 +985,7 @@ function PnlGraph({ data, color, S, height = 210, wallets = [], zoom: zoomProp, 
               </text>
               <text x={tx+10} y={(y+=14)} fill={S.textDim} fontSize="9"  fontFamily="DM Mono">{hovD.time}</text>
               <text x={tx+10} y={(y+=16)} fill={pnlC(hovD.tradePnl)} fontSize="10" fontFamily="DM Mono">
-                trade {hovD.tradePnl >= 0 ? "+" : ""}{hovD.tradePnl} SOL
+                trade {fmtC(hovD.tradePnl, S)}
               </text>
               {tradePct && (
                 <text x={tx+10} y={(y+=16)} fill={pnlC(hovD.tradePnl)} fontSize="11" fontFamily="DM Mono" fontWeight="bold">
@@ -990,7 +994,7 @@ function PnlGraph({ data, color, S, height = 210, wallets = [], zoom: zoomProp, 
               )}
               {!tradePct && void (y += 0)}
               <text x={tx+10} y={(y+=16)} fill={pnlC(hovD.cumPnl)} fontSize="9" fontFamily="DM Mono">
-                total: {hovD.cumPnl >= 0 ? "+" : ""}{hovD.cumPnl} SOL
+                total: {fmtC(hovD.cumPnl, S)}
               </text>
               {/* Per-wallet breakdown for merged points */}
               {breakdownRows && breakdownRows.map((b, bi) => (
@@ -1047,7 +1051,7 @@ function BarTip({ active, payload, S }) {
   return (
     <div style={{ background: S.bgBase, border: `1px solid ${S.borderColor}`, padding: "8px 12px", fontFamily: "'DM Mono',monospace", fontSize: 11, pointerEvents: "none" }}>
       <div style={{ color: col, fontWeight: 600, marginBottom: 3 }}>{d.payload.label}</div>
-      <div style={{ color: S.textMid }}>pnl: <span style={{ color: col }}>{sign(d.value)}{fmt(val, decimals)}</span></div>
+      <div style={{ color: S.textMid }}>pnl: <span style={{ color: col }}>{fmtC(d.value, S, decimals)}</span></div>
     </div>
   );
 }
@@ -1326,7 +1330,7 @@ function CalendarHeatmap({ trades, tf, tzOffset = 0, S, onDayClick }) {
                   transition: "border-color .12s" }}>
                 <div className="ts-dim" style={{ fontFamily: "'Orbitron',monospace", fontSize: 9, color: S.textDim, letterSpacing: ".1em", marginBottom: 6 }}>{month}</div>
                 <div className="ts-mono" style={{ fontFamily: "'Orbitron',monospace", fontWeight: 700, fontSize: 12, color: pnlColor(pnl), textShadow: isEmpty ? "none" : `0 0 8px ${pnlColor(pnl)}44`, marginBottom: 4 }}>
-                  {isEmpty ? "—" : `${pnl >= 0 ? "+" : ""}${fmt(pnl)}`}
+                  {isEmpty ? "—" : fmtC(pnl, S)}
                 </div>
                 {!isEmpty && (
                   <div className="ts-dim" style={{ fontSize: 9, color: S.textDim, fontFamily: "'DM Mono',monospace", lineHeight: 1.5 }}>
@@ -1362,8 +1366,8 @@ function CalendarHeatmap({ trades, tf, tzOffset = 0, S, onDayClick }) {
             <div style={{ color: S.textDim, marginBottom: 2 }}>
               Win / Loss days: <span style={{ color: S.accentGreen }}>{m.winDays}W</span> / <span style={{ color: S.accentRed }}>{m.lossDays}L</span> / {m.activeDays}d
             </div>
-            <div style={{ color: S.textDim, marginBottom: 2 }}>Vol bought: <span style={{ color: S.textPrimary }}>{fmt(m.volBought ?? 0, 3)} SOL</span></div>
-            <div style={{ color: S.textDim }}>Vol sold: <span style={{ color: S.textPrimary }}>{fmt(m.volSold ?? 0, 3)} SOL</span></div>
+            <div style={{ color: S.textDim, marginBottom: 2 }}>Vol bought: <span style={{ color: S.textPrimary }}>{fmtC(m.volBought ?? 0, S, 3)}</span></div>
+            <div style={{ color: S.textDim }}>Vol sold: <span style={{ color: S.textPrimary }}>{fmtC(m.volSold ?? 0, S, 3)}</span></div>
             {onDayClick && <div style={{ color: S.textDim, fontSize: 9, marginTop: 6, opacity: 0.6 }}>click to share</div>}
           </div>
         );
@@ -1390,8 +1394,8 @@ function CalendarHeatmap({ trades, tf, tzOffset = 0, S, onDayClick }) {
                   {fmtC(hovData.pnl, S, 4)}
                 </div>
                 <div style={{ color: S.textDim, marginBottom: 2 }}>Wins / Losses: <span style={{ color: S.accentGreen }}>{hovData.wins}</span> / <span style={{ color: S.accentRed }}>{hovData.losses}</span></div>
-                <div style={{ color: S.textDim, marginBottom: 2 }}>Volume bought: <span style={{ color: S.textPrimary }}>{fmt(hovData.volBought, 3)} SOL</span></div>
-                <div style={{ color: S.textDim }}>Volume sold: <span style={{ color: S.textPrimary }}>{fmt(hovData.volSold, 3)} SOL</span></div>
+                <div style={{ color: S.textDim, marginBottom: 2 }}>Volume bought: <span style={{ color: S.textPrimary }}>{fmtC(hovData.volBought, S, 3)}</span></div>
+                <div style={{ color: S.textDim }}>Volume sold: <span style={{ color: S.textPrimary }}>{fmtC(hovData.volSold, S, 3)}</span></div>
                 {onDayClick && <div style={{ color: S.textDim, fontSize: 9, marginTop: 6, opacity: 0.6 }}>click to share</div>}
               </>
             ) : (
@@ -3001,17 +3005,15 @@ function AdminPanel({ S, setSetting }) {
   const [ranks, setRanks] = useState(() =>
     JSON.parse(JSON.stringify(S?.pnlRanks ?? DEFAULT_SETTINGS.pnlRanks))
   );
-  const prevPnlRanksRef = React.useRef(S?.pnlRanks);
-  React.useEffect(() => {
-    // Only re-seed if pnlRanks reference changed AND user hasn't started editing
-    // (compare by reference — setSetting always creates a new array)
+  const [selectedRankIdx, setSelectedRankIdx] = useState(0);
+  const prevPnlRanksRef = useRef(S?.pnlRanks);
+  useEffect(() => {
     if (S?.pnlRanks !== prevPnlRanksRef.current) {
       prevPnlRanksRef.current = S?.pnlRanks;
       setRanks(JSON.parse(JSON.stringify(S?.pnlRanks ?? DEFAULT_SETTINGS.pnlRanks)));
       setSelectedRankIdx(0);
     }
   }, [S?.pnlRanks]);
-  const [selectedRankIdx, setSelectedRankIdx] = useState(0);
   const updateRank = (i, k, v) => setRanks(prev => prev.map((r, j) => j === i ? { ...r, [k]: v } : r));
   const addRank = () => setRanks(prev => [...prev, {
     min: 0, name: "NEW_RANK", color: "#ffffff", g1: "#333333", g2: "#000000", shape: "IMPERIAL"
@@ -3837,7 +3839,7 @@ function TokenDetail({ mint, token, trades, wallets, S, getColor, onBack }) {
           { label: "NET PnL", val: sign(netPnl) + fmtC(netPnl, S), color: pnlColor(netPnl), sub: pctReturn !== 0 ? `${sign(pctReturn)}${Math.abs(pctReturn).toFixed(1)}% return` : null },
           { label: "TOTAL BOUGHT", val: fmtC(totalBought, S), color: S.accentRed + "cc", sub: `${buys.length} buys` },
           { label: "TOTAL SOLD", val: fmtC(totalSold, S), color: S.accentGreen + "cc", sub: `${sells.length} sells` },
-          { label: "FEES", val: `-${fmt(totalFees, 5)} SOL`, color: S.accentFee, sub: `${tokenTrades.length} txs total` },
+          { label: "FEES", val: fmtC(-totalFees, S, 5), color: S.accentFee, sub: `${tokenTrades.length} txs total` },
           { label: "POSITIONS", val: closedPositions.length, color: S.textPrimary, sub: `${buys.length}B · ${sells.length}S` },
         ].map((s) => (
           <BorderCard key={s.label} S={S} style={{ padding: "14px 16px" }}>
@@ -3868,14 +3870,14 @@ function TokenDetail({ mint, token, trades, wallets, S, getColor, onBack }) {
           <div style={{ fontFamily: "'Orbitron',monospace", fontWeight: 700, fontSize: 15, color: S.textMid }}>
             {totalTokensBought > 1e6 ? (totalTokensBought / 1e6).toFixed(2) + "M" : totalTokensBought > 1e3 ? (totalTokensBought / 1e3).toFixed(2) + "K" : fmt(totalTokensBought, 2)}
           </div>
-          {buys.length > 0 && <div style={{ color: S.textDim, fontSize: 9, marginTop: 4, ...mono }}>avg {fmt(totalBought / buys.length, 4)} SOL/buy</div>}
+          {buys.length > 0 && <div style={{ color: S.textDim, fontSize: 9, marginTop: 4, ...mono }}>avg {fmtC(totalBought / buys.length, S, 4)} / buy</div>}
         </BorderCard>
         <BorderCard S={S} style={{ padding: "14px 16px" }}>
           <div style={{ color: S.textDim, fontSize: 9, letterSpacing: ".14em", marginBottom: 8 }}>TOKENS SOLD</div>
           <div style={{ fontFamily: "'Orbitron',monospace", fontWeight: 700, fontSize: 15, color: S.textMid }}>
             {totalTokensSold > 1e6 ? (totalTokensSold / 1e6).toFixed(2) + "M" : totalTokensSold > 1e3 ? (totalTokensSold / 1e3).toFixed(2) + "K" : fmt(totalTokensSold, 2)}
           </div>
-          {sells.length > 0 && <div style={{ color: S.textDim, fontSize: 9, marginTop: 4, ...mono }}>avg {fmt(totalSold / sells.length, 4)} SOL/sell</div>}
+          {sells.length > 0 && <div style={{ color: S.textDim, fontSize: 9, marginTop: 4, ...mono }}>avg {fmtC(totalSold / sells.length, S, 4)} / sell</div>}
         </BorderCard>
       </div>
 
@@ -4352,6 +4354,7 @@ function ShareModal({ S, setSetting, pnlCurve, closed, totalPnl, winRate, tf, wa
   const [showChart, setShowChart] = useState(defaultShowChart);
   const [customLabel, setCustomLabel] = useState(""); // "" = use default walletLabel
   const [cardTextScale, setCardTextScale] = useState(1.0); // 0.5–1.5 multiplier for minor text
+  const [cardPnlCompact, setCardPnlCompact] = useState(false); // show 1.2k instead of 1247.3
   // Build a merged rank with the user's session overrides applied
   const baseCard = { ...DEFAULT_CARD, ...(rank.card ?? {}) };
   const previewRank = { ...rank, card: {
