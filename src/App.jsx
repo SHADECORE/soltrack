@@ -999,7 +999,7 @@ function PnlGraph({ data, color, S, height = 210, wallets = [], zoom: zoomProp, 
               {/* Per-wallet breakdown for merged points */}
               {breakdownRows && breakdownRows.map((b, bi) => (
                 <text key={bi} x={tx+10} y={(y+=13)} fill={pnlC(b.net)} fontSize="8" fontFamily="DM Mono">
-                  {b.label}: {b.net >= 0 ? "+" : ""}{b.net.toFixed(4)}
+                  {b.label}: {fmtC(b.net, S)}
                 </text>
               ))}
               {/* Single wallet label for non-merged points */}
@@ -1223,11 +1223,11 @@ function CalendarHeatmap({ trades, tf, tzOffset = 0, S, onDayClick }) {
 
       <div style={{ display: "grid", gridTemplateColumns: "repeat(6,1fr)", gap: 8, marginBottom: 14 }}>
         {[
-          { label: "YEAR PnL",    val: (yearStats.totalPnl >= 0 ? "+" : "") + fmtC(yearStats.totalPnl, S), color: yearStats.totalPnl >= 0 ? S.accentGreen : S.accentRed },
+          { label: "YEAR PnL",    val: fmtC(yearStats.totalPnl, S), color: yearStats.totalPnl >= 0 ? S.accentGreen : S.accentRed },
           { label: "ACTIVE DAYS", val: yearStats.tradeDays,  color: S.textPrimary },
           { label: "GREEN DAYS",  val: yearStats.winDays,    color: S.accentGreen },
           { label: "RED DAYS",    val: yearStats.lossDays,   color: S.accentRed },
-          { label: "BEST DAY",    val: yearStats.bestDay  ? "+" + fmtC(yearStats.bestDay.pnl, S)  : "—", color: S.accentBest ?? "#ffd700" },
+          { label: "BEST DAY",    val: yearStats.bestDay  ? fmtC(yearStats.bestDay.pnl, S)  : "—", color: S.accentBest ?? "#ffd700" },
           { label: "WORST DAY",   val: yearStats.worstDay ? fmtC(yearStats.worstDay.pnl, S)      : "—", color: S.accentRed },
         ].map(s => (
           <BorderCard key={s.label} S={S} style={{ padding: "11px 14px" }}>
@@ -1976,6 +1976,8 @@ function WalletSidebar({
   const green = S.accentGreen;
 
   // Fetch SOL balances for all wallets via Helius RPC
+  // Stable dep string for balance fetch — recalculated only when addresses actually change
+  const _walletAddrs = wallets.map(w => w.address).join(",");
   useEffect(() => {
     if (!wallets.length) return;
     const key = S.heliusKey;
@@ -1983,12 +1985,20 @@ function WalletSidebar({
       ? `https://mainnet.helius-rpc.com/?api-key=${key}`
       : "https://api.mainnet-beta.solana.com";
     let cancelled = false;
-    Promise.allSettled(wallets.map(w =>
+    // Batch all wallets into a single RPC request for efficiency + reliability
+    const addrs = wallets.map(w => w.address);
+    Promise.allSettled(addrs.map(addr =>
       fetch(rpcUrl, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "getBalance", params: [w.address] }),
-      }).then(r => r.ok ? r.json() : null).then(j => ({ address: w.address, lamports: j?.result?.value ?? null }))
+        body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "getBalance", params: [addr] }),
+      })
+        .then(r => r.ok ? r.json() : null)
+        .then(j => {
+          const lamports = j?.result?.value;
+          return { address: addr, lamports: (lamports !== undefined && lamports !== null) ? lamports : null };
+        })
+        .catch(() => ({ address: addr, lamports: null }))
     )).then(results => {
       if (cancelled) return;
       const map = {};
@@ -1999,7 +2009,7 @@ function WalletSidebar({
       setBalances(map);
     });
     return () => { cancelled = true; };
-  }, [wallets.map(w => w.address).join(","), S.heliusKey]);
+  }, [_walletAddrs, S.heliusKey]);
 
   const savePresets = (next) => setSetting("walletPresets", next);
 
@@ -3836,7 +3846,7 @@ function TokenDetail({ mint, token, trades, wallets, S, getColor, onBack }) {
       {/* Stats row */}
       <div style={{ display: "grid", gridTemplateColumns: "repeat(5,1fr)", gap: 8, marginBottom: 10 }}>
         {[
-          { label: "NET PnL", val: sign(netPnl) + fmtC(netPnl, S), color: pnlColor(netPnl), sub: pctReturn !== 0 ? `${sign(pctReturn)}${Math.abs(pctReturn).toFixed(1)}% return` : null },
+          { label: "NET PnL", val: fmtC(netPnl, S), color: pnlColor(netPnl), sub: pctReturn !== 0 ? `${sign(pctReturn)}${Math.abs(pctReturn).toFixed(1)}% return` : null },
           { label: "TOTAL BOUGHT", val: fmtC(totalBought, S), color: S.accentRed + "cc", sub: `${buys.length} buys` },
           { label: "TOTAL SOLD", val: fmtC(totalSold, S), color: S.accentGreen + "cc", sub: `${sells.length} sells` },
           { label: "FEES", val: fmtC(-totalFees, S, 5), color: S.accentFee, sub: `${tokenTrades.length} txs total` },
@@ -4262,7 +4272,7 @@ function ShareCardInner({ S, pnlCurve, closed, totalPnl, winRate, tf, walletLabe
       <text x={PAD} y="192" fontFamily="'Orbitron',monospace" fontWeight="900"
         fontSize={pnlFontSize} fill={pnlColor} letterSpacing="-2"
         style={{ filter:`drop-shadow(0 0 18px ${pnlColor}66)` }}>
-        {displayStr}
+        {_displayCur === "SOL" ? displayStr.replace(" SOL", "") : displayStr}
       </text>
       <text x={PAD} y="212" fontFamily="'Orbitron',monospace"
         fontSize={c.solFontSize ?? 9}
@@ -5704,11 +5714,11 @@ export default function App() {
           <div className="fade-up">
             <div style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 8, marginBottom: 10 }}>
               {[
-                { label: "NET PnL",     val: (sign(totalPnl)) + fmtC(totalPnl, S),   color: pnlColor(totalPnl), sub: "closed positions" },
+                { label: "NET PnL",     val: fmtC(totalPnl, S),   color: pnlColor(totalPnl), sub: "closed positions" },
                 { label: "WIN RATE",    val: `${winRate}%`,                             color: +winRate >= 60 ? S.accentGreen : S.accentRed },
                 { label: "CLOSED POS",  val: closed.length, color: S.textPrimary,
                   buyC: buyCount, sellC: sellCount },
-                { label: "RECLAIMABLE", val: reclaimable ? "+" + fmtC(reclaimable.sol, S, 4) : "—",
+                { label: "RECLAIMABLE", val: reclaimable ? fmtC(reclaimable.sol, S, 4) : "—",
                   color: reclaimable?.sol > 0 ? S.accentGreen : S.textDim,
                   sub: reclaimable ? `${reclaimable.accounts} empty accounts` : "loading..." },
               ].map((s) => (
