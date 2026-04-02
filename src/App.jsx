@@ -2796,11 +2796,20 @@ function useWalletData(S, clientToken = "") {
   const removeWallet = useCallback((id) => {
     abortRefs.current[id]?.abort();
     setWallets((p) => {
+      const w = p.find(w => w.id === id);
+      // Unlink from server so cross-device restore doesn't bring it back
+      if (w?.address && S.workerUrl) {
+        const base = sanitizeWorkerUrl(S.workerUrl);
+        const token = localStorage.getItem("soltrack_user_token") ?? "";
+        fetch(`${base}/user/wallets/${encodeURIComponent(w.address)}`, {
+          method: "DELETE", headers: { "Authorization": `Bearer ${token}` },
+        }).catch(() => {});
+      }
       const next = p.filter((w) => w.id !== id);
       if (next.length === 0) localStorage.removeItem("soltrack_wallets");
       return next;
     });
-  }, []);
+  }, [S.workerUrl]);
 
   const refreshWallet = useCallback(async (id) => {
     const w = walletsRef.current.find((ww) => ww.id === id);
