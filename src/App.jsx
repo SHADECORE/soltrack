@@ -4973,6 +4973,7 @@ function SettingsPanel({ S, setSetting, setS }) {
         } catch { alert("Invalid preset file"); }
       }; r.readAsText(file);
     }; inp.click();
+  };
 
   const exportWallets = () => {
     const data = wallets.map(w => ({
