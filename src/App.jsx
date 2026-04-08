@@ -5022,7 +5022,6 @@ function SettingsPanel({ S, setSetting, setS }) {
     };
     inp.click();
   };
-  };
 
   // ── Graph shape rules editor
   const rules = S.graphShapeRules ?? DEFAULT_SETTINGS.graphShapeRules;
