@@ -439,45 +439,35 @@ function buildMergedCurve(trades) {
   const curve = [{ label: "START", idx: 0, cumPnl: 0, tradePnl: 0, fee: 0 }];
   let cum = 0;
 
-  // Group trades by mint, sort chronologically
-  const byMint = {};
+  // Group by mint + calendar day (UTC date string YYYY-MM-DD)
+  // Same token on same day → one merged point; different days → separate points
+  const dayOf = ts => (ts ?? "").slice(0, 10); // "2025-03-22T..." → "2025-03-22"
+
+  const buckets = {}; // "mint::day" → accumulator
   for (const t of [...trades].sort((a, b) => new Date(a.ts) - new Date(b.ts))) {
     const mint = t.mint ?? t.token;
-    if (!byMint[mint]) byMint[mint] = [];
-    byMint[mint].push(t);
-  }
-
-  // For each mint, split into cycles: a cycle ends when fully closed (solOut >= solIn)
-  const allCycles = [];
-  for (const [mint, mintTrades] of Object.entries(byMint)) {
-    let cycle = { solIn: 0, solOut: 0, fees: 0, token: mintTrades[0].token, mint, lastTs: null, lastSellTs: null, wallets: {} };
-    for (const t of mintTrades) {
-      cycle.lastTs = t.ts;
-      cycle.fees += t.fee || 0;
-      const wk = t.wallet ?? "unknown";
-      if (!cycle.wallets[wk]) cycle.wallets[wk] = { solIn: 0, solOut: 0 };
-      if (t.type === "buy") {
-        cycle.solIn += t.sol;
-        cycle.wallets[wk].solIn += t.sol;
-      } else if (t.type === "sell") {
-        cycle.solOut += t.sol;
-        cycle.wallets[wk].solOut += t.sol;
-        cycle.lastSellTs = t.ts;
-      }
-      // Cycle closes when position is fully exited (with small float tolerance)
-      if (cycle.lastSellTs && cycle.solOut >= cycle.solIn - 0.000001) {
-        allCycles.push({ ...cycle });
-        cycle = { solIn: 0, solOut: 0, fees: 0, token: t.token, mint, lastTs: null, lastSellTs: null, wallets: {} };
-      }
+    const day  = dayOf(t.ts);
+    const key  = mint + "::" + day;
+    if (!buckets[key]) buckets[key] = { solIn: 0, solOut: 0, fees: 0, token: t.token, mint, lastTs: t.ts, lastSellTs: null, wallets: {} };
+    const b = buckets[key];
+    b.lastTs = t.ts;
+    b.fees  += t.fee || 0;
+    const wk = t.wallet ?? "unknown";
+    if (!b.wallets[wk]) b.wallets[wk] = { solIn: 0, solOut: 0 };
+    if (t.type === "buy") {
+      b.solIn += t.sol; b.wallets[wk].solIn += t.sol;
+    } else if (t.type === "sell") {
+      b.solOut += t.sol; b.wallets[wk].solOut += t.sol;
+      b.lastSellTs = t.ts;
     }
-    // Push remaining open or unclosed cycle
-    if (cycle.lastTs) allCycles.push(cycle);
   }
 
-  // Sort cycles by close time (or last trade time if open)
-  allCycles.sort((a, b) => new Date(a.lastSellTs ?? a.lastTs) - new Date(b.lastSellTs ?? b.lastTs));
+  // Sort buckets by close time (last sell) or last trade time
+  const sorted = Object.values(buckets).sort((a, b) =>
+    new Date(a.lastSellTs ?? a.lastTs) - new Date(b.lastSellTs ?? b.lastTs)
+  );
 
-  for (const p of allCycles) {
+  for (const p of sorted) {
     const net = p.solOut - p.solIn;
     const isStable = isStablecoin(p.mint, p.token);
     if (!isStable) cum += net;
@@ -487,14 +477,14 @@ function buildMergedCurve(trades) {
       net: +(wd.solOut - wd.solIn).toFixed(9),
     }));
     curve.push({
-      label:    p.token ?? p.mint?.slice(0,6) ?? "?",
+      label:    p.token ?? p.mint?.slice(0, 6) ?? "?",
       idx:      curve.length,
       cumPnl:   +cum.toFixed(9),
       tradePnl: +net.toFixed(9),
       fee:      +p.fees.toFixed(9),
       solIn:    p.solIn,
       solOut:   p.solOut,
-      time:     ts?.slice(5,16).replace("T"," "),
+      time:     ts?.slice(5, 16).replace("T", " "),
       token:    p.token,
       mint:     p.mint,
       wallet:   null,
@@ -3205,7 +3195,7 @@ function AdminPanel({ S, setSetting }) {
           <span style={{ ...orb, fontWeight: 900, fontSize: 13, letterSpacing: ".2em", color: "#fff" }}>SOLTRACK ADMIN</span>
         </div>
         <div style={{ display: "flex", gap: 12 }}>
-          {["wallets","ranks"].map(t => (
+          {["wallets","ranks","card"].map(t => (
             <button key={t} onClick={() => setAdminTab(t)}
               style={{ ...mono, background:"none", border:`1px solid ${adminTab===t?green:border}`,
                 color:adminTab===t?green:dim, cursor:"pointer", padding:"4px 12px", fontSize:9, letterSpacing:".1em" }}>
@@ -3608,7 +3598,95 @@ function AdminPanel({ S, setSetting }) {
           </div>
           );
         })()}
-        {adminTab === "wallets" && data && (
+        {adminTab === "card" && (() => {
+          // Global DEFAULT_CARD overrides stored in S.defaultCard
+          // These apply to ALL ranks unless a rank has its own override
+          const dc = S.defaultCard ?? {};
+          const setDC = (k, v) => setSetting("defaultCard", { ...dc, [k]: v });
+          const num = (k, label, min, max, step=1, unit="") => (
+            <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:8 }}>
+              <label style={{ ...mono, fontSize:9, color:dim, width:200, flexShrink:0 }}>{label}</label>
+              <input type="range" min={min} max={max} step={step}
+                value={dc[k] ?? DEFAULT_CARD[k] ?? min}
+                onChange={e => setDC(k, +e.target.value)}
+                style={{ flex:1, accentColor:green }}/>
+              <span style={{ ...mono, fontSize:9, color:green, width:44, textAlign:"right" }}>
+                {(dc[k] ?? DEFAULT_CARD[k] ?? min)}{unit}
+              </span>
+              <button onClick={() => { const nd = {...dc}; delete nd[k]; setSetting("defaultCard", nd); }}
+                title="Reset to default"
+                style={{ background:"none", border:`1px solid ${border}`, color:dim, cursor:"pointer",
+                  fontSize:8, padding:"2px 6px", ...mono, flexShrink:0 }}>↺</button>
+            </div>
+          );
+          const col = (k, label) => (
+            <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:8 }}>
+              <label style={{ ...mono, fontSize:9, color:dim, width:200, flexShrink:0 }}>{label}</label>
+              <input type="color" value={dc[k] ?? DEFAULT_CARD[k] ?? "#000000"}
+                onChange={e => setDC(k, e.target.value)}
+                style={{ width:32, height:24, border:"none", background:"none", cursor:"pointer" }}/>
+              <input type="text" value={dc[k] ?? DEFAULT_CARD[k] ?? ""}
+                onChange={e => setDC(k, e.target.value)}
+                style={{ flex:1, background:"#0a0a0a", border:`1px solid ${border}`, color:"#fff",
+                  ...mono, fontSize:9, padding:"3px 6px" }}/>
+              <button onClick={() => { const nd = {...dc}; delete nd[k]; setSetting("defaultCard", nd); }}
+                title="Reset to default"
+                style={{ background:"none", border:`1px solid ${border}`, color:dim, cursor:"pointer",
+                  fontSize:8, padding:"2px 6px", ...mono, flexShrink:0 }}>↺</button>
+            </div>
+          );
+          const Section = ({ title }) => (
+            <div style={{ ...mono, fontSize:8, color:green, letterSpacing:".14em",
+              borderBottom:`1px solid ${green}22`, paddingBottom:4, marginTop:14, marginBottom:8 }}>
+              {title}
+            </div>
+          );
+          return (
+            <div style={{ padding:"4px 0" }}>
+              <div style={{ ...mono, fontSize:9, color:dim, marginBottom:16, lineHeight:1.7 }}>
+                Global card defaults — applied to all ranks. Per-rank settings in the Ranks tab override these.
+                Click ↺ to reset any field to its built-in default.
+              </div>
+              <Section title="DIMENSIONS" />
+              {num("borderWidth",    "Border width",          0,   8,   0.1, "px")}
+              {num("borderOpacity",  "Border opacity",        0,   1,   0.01)}
+              {num("dividerWidth",   "Divider width",         0,   4,   0.5, "px")}
+              {num("dividerOpacity", "Divider opacity",       0,   1,   0.01)}
+              <Section title="BACKGROUND GRADIENT" />
+              {num("gradientAngle",  "Gradient angle",        0,   360, 5,   "°")}
+              {num("g1Stop",         "G1 stop %",             0,   100, 1,   "%")}
+              {num("g1Opacity",      "G1 opacity",            0,   1,   0.01)}
+              {num("midStop",        "Mid stop %",            0,   100, 1,   "%")}
+              {col("midColor",       "Mid color")}
+              {num("endStop",        "End stop %",            0,   100, 1,   "%")}
+              {col("endColor",       "End color")}
+              <Section title="DIAGONAL SLAB" />
+              {num("slabOpacity",    "Slab opacity",          0,   0.5, 0.01)}
+              {num("slabLineWidth",  "Slab line width",       0,   4,   0.1, "px")}
+              {num("slabLineOpacity","Slab line opacity",     0,   1,   0.01)}
+              <Section title="TYPOGRAPHY" />
+              {num("rankFontSize",         "Rank name font",       8,  52, 1,  "px")}
+              {num("solFontSize",          "Currency label font",  6,  16, 1,  "px")}
+              {num("walletLabelFontSize",  "Wallet label font",    6,  14, 1,  "px")}
+              {col("minorTextColor",       "Minor text color")}
+              <Section title="SHAPE" />
+              {num("shapeSize",  "Shape size",   10, 100, 2, "px")}
+              {num("shapeX",     "Shape X",       0, 340, 2, "px")}
+              {num("shapeY",     "Shape Y",       0, 200, 2, "px")}
+              {num("ghostSize",  "Ghost size",   20, 200, 5, "px")}
+              <Section title="DIVIDER DASH" />
+              <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:8 }}>
+                <label style={{ ...mono, fontSize:9, color:dim, width:200, flexShrink:0 }}>Divider dash pattern</label>
+                <input type="text" value={dc.dividerDash ?? DEFAULT_CARD.dividerDash}
+                  onChange={e => setDC("dividerDash", e.target.value)}
+                  placeholder="4,4"
+                  style={{ flex:1, background:"#0a0a0a", border:`1px solid ${border}`, color:"#fff",
+                    ...mono, fontSize:9, padding:"3px 6px" }}/>
+              </div>
+            </div>
+          );
+        })()}
+                {adminTab === "wallets" && data && (
           <>
             <div style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 12, marginBottom: 24 }}>
               {[
@@ -4102,7 +4180,8 @@ function ShareCardInner({ S, pnlCurve, closed, totalPnl, winRate, tf, walletLabe
   // Merge rank's own card settings with defaults — every visual property lives here
   // cardNotchStyle from global settings overrides per-rank default
   // cardNotchStyle is a global user preference — must override rank.card which may have its own notchStyle
-  const c = { ...DEFAULT_CARD, ...(rank.card ?? {}), notchStyle: S.cardNotchStyle ?? "semicircle" };
+  // Merge priority: DEFAULT_CARD < S.defaultCard (global admin) < rank.card (per-rank)
+  const c = { ...DEFAULT_CARD, ...(S?.defaultCard ?? {}), ...(rank.card ?? {}), notchStyle: S.cardNotchStyle ?? "semicircle" };
 
   const totalSolIn  = closed.reduce((s, x) => s + (x.solIn  || 0), 0);
   const totalSolOut = closed.reduce((s, x) => s + (x.solOut || 0), 0);
@@ -4325,7 +4404,7 @@ function ShareCardInner({ S, pnlCurve, closed, totalPnl, winRate, tf, walletLabe
       {c.showChart ? (
         <>
           {cv && (
-            <svg x={PAD} y={ROW_Y} width={CURVE_W} height={STUB_ROW_H} overflow="hidden">
+            <svg x={PAD} y={ROW_Y} width={CURVE_W} height={STUB_ROW_H} overflow="visible">
               {cv.hasZero && (
                 <line x1="2" y1={cv.zy} x2={CURVE_W-2} y2={cv.zy}
                   stroke="rgba(255,255,255,0.06)" strokeWidth="0.7" strokeDasharray="3,5"/>
