@@ -432,36 +432,56 @@ function buildCurve(trades) {
 }
 
 // ── MERGED CURVE BUILDER ──────────────────────────────────────────────────────
-// Like buildCurve but merges same-token positions across all wallets into one point.
-// walletBreakdown: { mint → { wallet → {solIn, solOut, net} } }
+// Merges same-token trades across wallets into one point per trading cycle.
+// A cycle closes when cumulative solOut >= cumulative solIn (fully exited).
+// This prevents old closed positions from merging with new ones on the same token.
 function buildMergedCurve(trades) {
   const curve = [{ label: "START", idx: 0, cumPnl: 0, tradePnl: 0, fee: 0 }];
   let cum = 0;
-  // Key by mint only (not wallet:mint), accumulate per-wallet breakdown
-  const positions = {}; // mint → { solIn, solOut, fees, token, mint, lastTs, lastSellTs, wallets:{wallet→{solIn,solOut}} }
 
+  // Group trades by mint, sort chronologically
+  const byMint = {};
   for (const t of [...trades].sort((a, b) => new Date(a.ts) - new Date(b.ts))) {
     const mint = t.mint ?? t.token;
-    if (!positions[mint]) positions[mint] = { solIn: 0, solOut: 0, fees: 0, token: t.token, mint, lastTs: t.ts, lastSellTs: null, wallets: {} };
-    const pos = positions[mint];
-    pos.lastTs = t.ts;
-    pos.fees += t.fee || 0;
-    const wk = t.wallet ?? "unknown";
-    if (!pos.wallets[wk]) pos.wallets[wk] = { solIn: 0, solOut: 0 };
-    if (t.type === "buy")  { pos.solIn  += t.sol; pos.wallets[wk].solIn  += t.sol; }
-    else if (t.type === "sell") { pos.solOut += t.sol; pos.wallets[wk].solOut += t.sol; pos.lastSellTs = t.ts; pos.wallets[wk].lastSell = t.ts; }
+    if (!byMint[mint]) byMint[mint] = [];
+    byMint[mint].push(t);
   }
 
-  const sorted = Object.values(positions).sort((a, b) =>
-    new Date(a.lastSellTs ?? a.lastTs) - new Date(b.lastSellTs ?? b.lastTs)
-  );
+  // For each mint, split into cycles: a cycle ends when fully closed (solOut >= solIn)
+  const allCycles = [];
+  for (const [mint, mintTrades] of Object.entries(byMint)) {
+    let cycle = { solIn: 0, solOut: 0, fees: 0, token: mintTrades[0].token, mint, lastTs: null, lastSellTs: null, wallets: {} };
+    for (const t of mintTrades) {
+      cycle.lastTs = t.ts;
+      cycle.fees += t.fee || 0;
+      const wk = t.wallet ?? "unknown";
+      if (!cycle.wallets[wk]) cycle.wallets[wk] = { solIn: 0, solOut: 0 };
+      if (t.type === "buy") {
+        cycle.solIn += t.sol;
+        cycle.wallets[wk].solIn += t.sol;
+      } else if (t.type === "sell") {
+        cycle.solOut += t.sol;
+        cycle.wallets[wk].solOut += t.sol;
+        cycle.lastSellTs = t.ts;
+      }
+      // Cycle closes when position is fully exited (with small float tolerance)
+      if (cycle.lastSellTs && cycle.solOut >= cycle.solIn - 0.000001) {
+        allCycles.push({ ...cycle });
+        cycle = { solIn: 0, solOut: 0, fees: 0, token: t.token, mint, lastTs: null, lastSellTs: null, wallets: {} };
+      }
+    }
+    // Push remaining open or unclosed cycle
+    if (cycle.lastTs) allCycles.push(cycle);
+  }
 
-  for (const p of sorted) {
+  // Sort cycles by close time (or last trade time if open)
+  allCycles.sort((a, b) => new Date(a.lastSellTs ?? a.lastTs) - new Date(b.lastSellTs ?? b.lastTs));
+
+  for (const p of allCycles) {
     const net = p.solOut - p.solIn;
     const isStable = isStablecoin(p.mint, p.token);
-    if (!isStable) cum += net; // stables don't count toward cumulative PnL
+    if (!isStable) cum += net;
     const ts = p.lastSellTs ?? p.lastTs;
-    // Build per-wallet breakdown
     const walletBreakdown = Object.entries(p.wallets).map(([wallet, wd]) => ({
       wallet,
       net: +(wd.solOut - wd.solIn).toFixed(9),
@@ -4189,15 +4209,14 @@ function ShareCardInner({ S, pnlCurve, closed, totalPnl, winRate, tf, walletLabe
     }
     return fmtC(totalPnl, S, 2);
   })();
-  const _displayMag = _useCompact ? Math.abs(_displayRaw) / 1000 : Math.abs(_displayRaw);
-  const _strLen = displayStr.replace(/[^0-9.,]/g, "").length;
-  const pnlFontSize = _strLen >= 8 ? Math.round(maxPnlFont * 0.44)
-                    : _strLen >= 6 ? Math.round(maxPnlFont * 0.55)
-                    : _displayMag >= 10000 ? Math.round(maxPnlFont * 0.50)
-                    : _displayMag >= 1000  ? Math.round(maxPnlFont * 0.63)
-                    : _displayMag >= 100   ? Math.round(maxPnlFont * 0.76)
-                    : _displayMag >= 10    ? Math.round(maxPnlFont * 0.92)
-                    : maxPnlFont;
+  // Font size: fit the display string within the available card width
+  // Orbitron at any size: ~0.60 width-to-height ratio per character (measured)
+  // Available width = W - PAD * 2, capped at maxPnlFont
+  const CHAR_RATIO = 0.60;
+  const availW = W - PAD * 2;
+  const strChars = displayStr.length;
+  const fitFont = Math.floor(availW / (strChars * CHAR_RATIO));
+  const pnlFontSize = Math.min(maxPnlFont, Math.max(22, fitFont));
 
   // ── Curve ────────────────────────────────────────────────────────
   const MID     = Math.round(W * 0.55);
@@ -4306,7 +4325,7 @@ function ShareCardInner({ S, pnlCurve, closed, totalPnl, winRate, tf, walletLabe
       {c.showChart ? (
         <>
           {cv && (
-            <svg x={PAD} y={ROW_Y} width={CURVE_W} height={STUB_ROW_H} overflow="visible">
+            <svg x={PAD} y={ROW_Y} width={CURVE_W} height={STUB_ROW_H} overflow="hidden">
               {cv.hasZero && (
                 <line x1="2" y1={cv.zy} x2={CURVE_W-2} y2={cv.zy}
                   stroke="rgba(255,255,255,0.06)" strokeWidth="0.7" strokeDasharray="3,5"/>
@@ -4318,8 +4337,8 @@ function ShareCardInner({ S, pnlCurve, closed, totalPnl, winRate, tf, walletLabe
             </svg>
           )}
           {[
-            { label:'BOUGHT', val:fmt(totalSolIn,1),  col:'rgba(255,255,255,0.42)', lCol:'rgba(255,255,255,0.2)'  },
-            { label:'SOLD',   val:fmt(totalSolOut,1), col:accentColor,              lCol:accentColor              },
+            { label:'BOUGHT', val:fmtC(totalSolIn, S, 1).replace(" SOL",""),  col:'rgba(255,255,255,0.42)', lCol:'rgba(255,255,255,0.2)'  },
+            { label:'SOLD',   val:fmtC(totalSolOut, S, 1).replace(" SOL",""), col:accentColor,              lCol:accentColor              },
           ].map((row, i) => {
             const rowH = 42, gap = 6, totalH = rowH*2 + gap;
             const startY = ROW_Y + Math.round((STUB_ROW_H - totalH) / 2);
@@ -4331,7 +4350,7 @@ function ShareCardInner({ S, pnlCurve, closed, totalPnl, winRate, tf, walletLabe
                 <text x={W-PAD} y={y+30} textAnchor="end" fontFamily="'Orbitron',monospace"
                   fontWeight="700" fontSize="16" fill={row.col}>{row.val}</text>
                 <text x={W-PAD} y={y+41} textAnchor="end" fontFamily="'Orbitron',monospace"
-                  fontSize="6" fill={row.col} opacity="0.3">SOL</text>
+                  fontSize="6" fill={row.col} opacity="0.3">{(_displayCur && _displayCur !== "SOL") ? _displayCur : "SOL"}</text>
               </g>
             );
           })}
@@ -4339,8 +4358,8 @@ function ShareCardInner({ S, pnlCurve, closed, totalPnl, winRate, tf, walletLabe
       ) : (
         <>
           {[
-            { label:'BOUGHT', val:fmt(totalSolIn,2),  col:'rgba(255,255,255,0.42)', lCol:'rgba(255,255,255,0.22)', x: PAD   },
-            { label:'SOLD',   val:fmt(totalSolOut,2), col:accentColor,              lCol:accentColor,              x: W/2+8 },
+            { label:'BOUGHT', val:fmtC(totalSolIn, S, 2).replace(" SOL",""),  col:'rgba(255,255,255,0.42)', lCol:'rgba(255,255,255,0.22)', x: PAD   },
+            { label:'SOLD',   val:fmtC(totalSolOut, S, 2).replace(" SOL",""), col:accentColor,              lCol:accentColor,              x: W/2+8 },
           ].map(row => (
             <g key={row.label}>
               <text x={row.x} y={ROW_Y+16} fontFamily="'Orbitron',monospace"
