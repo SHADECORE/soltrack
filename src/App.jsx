@@ -2706,23 +2706,58 @@ function useWalletData(S, clientToken = "") {
     saveLS("soltrack_wallets", wallets.map(w => ({ address: w.address, label: w.label, colorIdx: w.colorIdx, archived: w.archived ?? false, excludeAll: w.excludeAll ?? false })));
   }, [wallets]);
 
-  // Restore wallets on mount and auto-fetch
+  // Restore wallets on mount:
+  // 1. From localStorage (same domain, instant)
+  // 2. From server (cross-device / domain change) — needs token which is set after login
   useEffect(() => {
     const saved = loadLS("soltrack_wallets", []);
-    if (!saved.length) return;
-    const restored = saved.map((w, i) => ({ id: `w_${i}_${w.address.slice(0,6)}`, ...w, trades: [], loaded: false }));
-    setWallets(restored);
-    // Fetch will run once workerUrl is available
-    restoreRef.current = restored;
+    if (saved.length) {
+      const restored = saved.map((w, i) => ({ id: `w_${i}_${w.address.slice(0,6)}`, ...w, trades: [], loaded: false }));
+      setWallets(restored);
+      restoreRef.current = restored;
+    }
   }, []);
 
   const restoreRef = useRef([]);
+
+  // Fetch wallets from server after token and workerUrl are both available
+  // Covers: new device, domain change, or fresh install where localStorage is empty
+  useEffect(() => {
+    const token = localStorage.getItem("soltrack_user_token") ?? "";
+    if (!S.workerUrl || !token) return;
+    const base = sanitizeWorkerUrl(S.workerUrl);
+    fetch(`${base}/user/wallets`, {
+      headers: { "Authorization": `Bearer ${token}` },
+    })
+      .then(r => r.ok ? r.json() : null)
+      .then(data => {
+        if (!data?.wallets?.length) return;
+        setWallets(prev => {
+          const existing = new Set(prev.map(w => w.address));
+          const maxColor = prev.length ? Math.max(...prev.map(w => w.colorIdx)) + 1 : 0;
+          const newWallets = data.wallets
+            .filter(sw => !existing.has(sw.address))
+            .map((sw, i) => ({
+              id: `w_srv_${Date.now()}_${i}`,
+              address: sw.address,
+              label: sw.label ?? sw.address.slice(0, 8),
+              colorIdx: maxColor + i,
+              trades: [], loaded: false,
+            }));
+          if (!newWallets.length) return prev;
+          restoreRef.current = [...restoreRef.current, ...newWallets];
+          return [...prev, ...newWallets];
+        });
+      })
+      .catch(() => {});
+  }, [S.workerUrl]); // re-runs if workerUrl changes; token is stable after login+reload
+
   useEffect(() => {
     if (!S.workerUrl || !restoreRef.current.length) return;
     const toFetch = restoreRef.current;
     restoreRef.current = [];
     toFetch.forEach(w => runFetch(w.id, w.address));
-  }, [S.workerUrl]);
+  }, [S.workerUrl, wallets]);
 
   const runFetch = useCallback(async (id, address) => {
     const workerUrl = apiKeyRef.current;
