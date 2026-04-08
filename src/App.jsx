@@ -207,6 +207,10 @@ async function fetchTrades(wallet, workerUrl, onProgress, signal, headers = {}) 
 }
 
 // ── SETTINGS ──────────────────────────────────────────────────────────────────
+// Hardcoded worker URL — visible in network requests anyway, not a secret.
+// Admin can override via Settings > Worker URL to migrate without redeployment.
+const DEFAULT_WORKER_URL = "https://soltrack.shadecore.workers.dev";
+
 const DEFAULT_SETTINGS = {
   appName: "SOLTRACK",
   accentGreen: "#00ff91",
@@ -277,7 +281,7 @@ const DEFAULT_SETTINGS = {
     },
   ],
   graphShapeNormalize: true,
-  workerUrl: "",
+  workerUrl: DEFAULT_WORKER_URL,
   heliusKey: "",
   // shareCard: removed — card appearance is now per-rank (rank.card), see DEFAULT_CARD below
   // ── Rank definitions (editable in admin) ─────────────────────────────────
@@ -2856,7 +2860,7 @@ function Onboarding({ S, workerUrl: workerUrlProp, onComplete, relogin = false }
       const pubkeyBytes = provider.publicKey.toBytes();
       const pubkeyHex   = Array.from(pubkeyBytes).map(b => b.toString(16).padStart(2,"0")).join("");
 
-      const effectiveUrl = workerUrl || localStorage.getItem("soltrack_worker_url_tmp") || "";
+      const effectiveUrl = workerUrl;
       if (!effectiveUrl) throw new Error("Worker URL not set. Enter it above.");
       const base = sanitizeWorkerUrl(effectiveUrl);
 
@@ -2913,7 +2917,7 @@ function Onboarding({ S, workerUrl: workerUrlProp, onComplete, relogin = false }
     if (!key.trim()) return;
     setConnecting(true); setErr("");
     try {
-      const effectiveUrl = workerUrl || localStorage.getItem("soltrack_worker_url_tmp") || "";
+      const effectiveUrl = workerUrl;
       const base  = sanitizeWorkerUrl(effectiveUrl);
       const token = localStorage.getItem("soltrack_user_token");
       const res   = await fetch(`${base}/auth/setup-key`, {
@@ -2958,17 +2962,7 @@ function Onboarding({ S, workerUrl: workerUrlProp, onComplete, relogin = false }
 
         {step === "connect" && (
           <>
-            {!workerUrl && (
-              <div style={{ marginBottom: 20, padding: "10px 14px", border: "1px solid #333", background: "#111" }}>
-                <div style={{ ...mono, fontSize: 9, color: "#919191", marginBottom: 6 }}>WORKER URL</div>
-                <input className="inp" style={{ width: "100%", boxSizing: "border-box" }}
-                  placeholder="https://soltrack.YOUR-NAME.workers.dev"
-                  onBlur={e => { if (e.target.value) { localStorage.setItem("soltrack_worker_url_tmp", e.target.value); } }}
-                  onKeyDown={e => e.key === "Enter" && e.target.blur()}
-                />
-                <div style={{ ...mono, fontSize: 8, color: "#555", marginTop: 4 }}>Get this from the person who runs SOLTRACK</div>
-              </div>
-            )}
+
             <div style={{ marginBottom: 28 }}>
               <span style={{ ...mono, fontSize: 11, color: "#f2f2f2", letterSpacing: ".08em" }}>SIGN IN WITH WALLET</span>
               <p style={{ ...mono, fontSize: 10, color: "#919191", marginBottom: 12, marginTop: 8, lineHeight: 1.6 }}>
@@ -5164,12 +5158,16 @@ function SettingsPanel({ S, setSetting, setS }) {
             {fieldLabel("WORKER URL")}
             <div style={{ display: "flex", gap: 6 }}>
               <input className="sinp" placeholder="https://soltrack.YOUR-NAME.workers.dev"
-                value={S.workerUrl} onChange={e => setSetting("workerUrl", sanitizeWorkerUrl(e.target.value))} />
-              {S.workerUrl && (
-                <button onClick={() => setSetting("workerUrl", "")} className="sb"
+                value={S.workerUrl} onChange={e => setSetting("workerUrl", sanitizeWorkerUrl(e.target.value))}
+                onBlur={e => { saveLS("soltrack_settings", { ...loadLS("soltrack_settings",{}), workerUrl: sanitizeWorkerUrl(e.target.value) }); }} />
+              {S.workerUrl !== DEFAULT_WORKER_URL && S.workerUrl && (
+                <button onClick={() => setSetting("workerUrl", DEFAULT_WORKER_URL)} className="sb"
                   style={{ padding: "8px 12px", borderColor: S.accentRed + "44", color: S.accentRed,
-                    "--border": S.borderColor, "--dim": S.textDim, "--mid": S.textMid, "--accent": S.accentGreen }}>CLR</button>
+                    "--border": S.borderColor, "--dim": S.textDim, "--mid": S.textMid, "--accent": S.accentGreen }}>↺</button>
               )}
+            </div>
+            <div style={{ color: S.textDim, fontSize: 9, fontFamily: "'DM Mono',monospace", marginTop: 4 }}>
+              Default: <span style={{ color: S.textMid }}>{DEFAULT_WORKER_URL}</span>
             </div>
           </div>
 
@@ -5275,6 +5273,8 @@ export default function App() {
   const [S, setS] = useState(() => {
     const saved = loadLS("soltrack_settings", {});
     const { pnlRanks: _dropped, ...rest } = saved; // never load ranks from localStorage
+    // Migrate: if stored workerUrl is empty, use the hardcoded default
+    if (!rest.workerUrl) rest.workerUrl = DEFAULT_WORKER_URL;
     return { ...DEFAULT_SETTINGS, ...rest };
   });
 
