@@ -347,6 +347,16 @@ const DEFAULT_CARD = {
   // ── Minor text color (wallet label, SOL label, % return)
   minorTextColor: "rgba(255,255,255,0.22)",
   notchStyle: "semicircle",  // "semicircle" | "triangle"
+  // ── Layout — all positions and paddings
+  cardPad:          24,   // left/right padding (px)
+  rankNameY:        54,   // rank name baseline Y
+  dividerLineY:     65,   // horizontal divider below rank name
+  walletLabelY:     80,   // wallet label baseline Y
+  pnlY:            192,   // PnL number baseline Y
+  currencyLabelY:  212,   // "SOL" / currency label baseline Y
+  pctReturnY:      244,   // % return baseline Y
+  pctReturnSize:    20,   // % return font size
+  pnlLetterSpacing: -2,   // PnL number letter spacing
 };
 
 // ── (no mock data) ────────────────────────────────────────────────────────────
@@ -3670,13 +3680,58 @@ function AdminPanel({ S, setSetting }) {
               {title}
             </div>
           );
+          // Sample data for live preview
+          const previewPnl = dc.previewPnl ?? 1.234;
+          const sampleCurve = [
+            { cumPnl: 0,    tradePnl: 0 },
+            { cumPnl: -0.4, tradePnl: -0.4 },
+            { cumPnl: 0.2,  tradePnl: 0.6 },
+            { cumPnl: 0.8,  tradePnl: 0.6 },
+            { cumPnl: previewPnl, tradePnl: previewPnl - 0.8 },
+          ];
+          const sampleClosed = [
+            { solIn: 0.5, solOut: 0.5 + previewPnl },
+          ];
           return (
             <div style={{ padding:"4px 0" }}>
-              <div style={{ ...mono, fontSize:9, color:dim, marginBottom:16, lineHeight:1.7 }}>
+              <div style={{ ...mono, fontSize:9, color:dim, marginBottom:12, lineHeight:1.7 }}>
                 Global card defaults — applied to all ranks. Per-rank settings in the Ranks tab override these.
                 Click ↺ to reset any field to its built-in default.
               </div>
-              <Section title="DIMENSIONS" />
+              {/* Live preview */}
+              <div style={{ marginBottom:16, display:"flex", flexDirection:"column", gap:8 }}>
+                <div style={{ ...mono, fontSize:8, color:green, letterSpacing:".14em" }}>LIVE PREVIEW</div>
+                <div style={{ display:"flex", alignItems:"flex-start", gap:12, flexWrap:"wrap" }}>
+                  <div style={{ transform:"scale(0.72)", transformOrigin:"top left", flexShrink:0, height:354 }}>
+                    <ShareCardInner S={{ ...S, defaultCard: dc }}
+                      pnlCurve={sampleCurve} closed={sampleClosed}
+                      totalPnl={previewPnl} winRate="66.67" tf="ALL"
+                      walletLabel="PREVIEW WALLET" />
+                  </div>
+                  <div style={{ flex:1, minWidth:160 }}>
+                    <div style={{ ...mono, fontSize:8, color:dim, marginBottom:8 }}>PREVIEW PnL VALUE</div>
+                    <input type="number" step="0.001"
+                      value={previewPnl}
+                      onChange={e => setDC("previewPnl", +e.target.value)}
+                      style={{ width:"100%", background:"#0a0a0a", border:`1px solid ${border}`,
+                        color:"#fff", ...mono, fontSize:11, padding:"5px 8px", boxSizing:"border-box" }}/>
+                    <div style={{ ...mono, fontSize:8, color:dim, marginTop:6, lineHeight:1.6, opacity:0.6 }}>
+                      Change this to test different PnL magnitudes and see how the font scales.
+                    </div>
+                  </div>
+                </div>
+              </div>
+              <Section title="LAYOUT" />
+              {num("cardPad",         "Left / right padding",  0,  60,  1,  "px")}
+              {num("rankNameY",       "Rank name Y",           20, 120, 1,  "px")}
+              {num("dividerLineY",    "Divider line Y",        30, 130, 1,  "px")}
+              {num("walletLabelY",    "Wallet label Y",        40, 140, 1,  "px")}
+              {num("pnlY",            "PnL number Y",          80, 280, 1,  "px")}
+              {num("currencyLabelY",  "Currency label Y",      90, 290, 1,  "px")}
+              {num("pctReturnY",      "% Return Y",           100, 320, 1,  "px")}
+              {num("pctReturnSize",   "% Return font size",    8,  40,  1,  "px")}
+              {num("pnlLetterSpacing","PnL letter spacing",  -10,  10,  1,  "")}
+              <Section title="BORDERS & DIVIDER" />
               {num("borderWidth",    "Border width",          0,   8,   0.1, "px")}
               {num("borderOpacity",  "Border opacity",        0,   1,   0.01)}
               {num("dividerWidth",   "Divider width",         0,   4,   0.5, "px")}
@@ -4221,7 +4276,8 @@ function ShareCardInner({ S, pnlCurve, closed, totalPnl, winRate, tf, walletLabe
   const pnlColor    = isPos ? accentColor : "#ff3355";
 
   // ── Card dimensions ──────────────────────────────────────────────
-  const W = 340, R = 12, CUT = 20, PAD = 24;
+  const W = 340, R = 12, CUT = 20;
+  const PAD = c.cardPad ?? 24;
   const STUB_PAD_TOP = 16, STUB_PAD_BOT = 14;
   const STUB_ROW_H   = c.showChart ? 90 : 80;
   const STUB_TOTAL   = STUB_PAD_TOP + STUB_ROW_H + STUB_PAD_BOT;
@@ -4317,14 +4373,32 @@ function ShareCardInner({ S, pnlCurve, closed, totalPnl, winRate, tf, walletLabe
     }
     return fmtC(totalPnl, S, 2);
   })();
-  // Font size: fit the display string within the available card width
-  // Orbitron at any size: ~0.60 width-to-height ratio per character (measured)
-  // Available width = W - PAD * 2, capped at maxPnlFont
-  const CHAR_RATIO = 0.60;
-  const availW = W - PAD * 2;
-  const strChars = displayStr.length;
-  const fitFont = Math.floor(availW / (strChars * CHAR_RATIO));
-  const pnlFontSize = Math.min(maxPnlFont, Math.max(22, fitFont));
+  // Font size: binary search for largest size where string fits within PAD→(W-PAD)
+  // Orbitron measured character widths (fraction of font-size):
+  //   digits 0-9: ~0.60, uppercase: ~0.65, +/-: ~0.50
+  //   $ £ €: ~0.65, zł ₴ ₸: ~0.70 (wider multi-byte symbols)
+  //   dot/comma: ~0.30, space: ~0.30, k: ~0.60
+  const letterSpacing = c.pnlLetterSpacing ?? -2;
+  const availW = (W - PAD * 2) * 0.97; // 3% safety margin against measurement error
+  const charWeight = (ch) => {
+    if (/[0-9]/.test(ch)) return 0.60;
+    if (/[A-Z]/.test(ch)) return 0.65;
+    if (/[a-z]/.test(ch)) return 0.55;
+    if ('$£€'.includes(ch)) return 0.65;
+    if ('zł₴₸₽'.includes(ch)) return 0.72;
+    if ('+-'.includes(ch)) return 0.50;
+    if ('.,'.includes(ch)) return 0.30;
+    return 0.55; // fallback for unknown symbols
+  };
+  const totalCharW = (f) =>
+    displayStr.split('').reduce((s, ch) => s + f * charWeight(ch), 0)
+    + Math.max(0, letterSpacing) * (displayStr.length - 1);
+  let lo = 16, hi = 82;
+  while (hi - lo > 0.5) {
+    const mid = (lo + hi) / 2;
+    if (totalCharW(mid) <= availW) lo = mid; else hi = mid;
+  }
+  const pnlFontSize = Math.round(lo);
 
   // ── Curve ────────────────────────────────────────────────────────
   const MID     = Math.round(W * 0.55);
@@ -4396,29 +4470,29 @@ function ShareCardInner({ S, pnlCurve, closed, totalPnl, winRate, tf, walletLabe
         strokeWidth={c.borderWidth ?? 1.1} opacity={c.borderOpacity ?? 0.48}/>
 
       {/* Rank name */}
-      <text x={PAD} y="54" fontFamily="'Orbitron',monospace" fontWeight="900"
+      <text x={PAD} y={c.rankNameY ?? 54} fontFamily="'Orbitron',monospace" fontWeight="900"
         fontSize={rankFontSize} fill={accentColor} letterSpacing="2"
         style={{ filter:`drop-shadow(0 0 10px ${accentColor}88)` }}>{rank.name}</text>
-      <line x1={PAD} y1="65" x2="178" y2="65" stroke={accentColor} strokeWidth="0.5" opacity="0.22"/>
-      <text x={PAD} y="80" fontFamily="'Orbitron',monospace"
+      <line x1={PAD} y1={c.dividerLineY ?? 65} x2="178" y2="65" stroke={accentColor} strokeWidth="0.5" opacity="0.22"/>
+      <text x={PAD} y={c.walletLabelY ?? 80} fontFamily="'Orbitron',monospace"
         fontSize={c.walletLabelFontSize ?? 8}
         fill={c.minorTextColor ?? "rgba(255,255,255,0.22)"} letterSpacing="1">{walletLabel} · {tf}</text>
 
       {/* PnL */}
-      <text x={PAD} y="192" fontFamily="'Orbitron',monospace" fontWeight="900"
-        fontSize={pnlFontSize} fill={pnlColor} letterSpacing="-2"
+      <text x={PAD} y={c.pnlY ?? 192} fontFamily="'Orbitron',monospace" fontWeight="900"
+        fontSize={pnlFontSize} fill={pnlColor} letterSpacing={c.pnlLetterSpacing ?? -2}
         style={{ filter:`drop-shadow(0 0 18px ${pnlColor}66)` }}>
         {_displayCur === "SOL" ? displayStr.replace(" SOL", "") : displayStr}
       </text>
-      <text x={PAD} y="212" fontFamily="'Orbitron',monospace"
+      <text x={PAD} y={c.currencyLabelY ?? 212} fontFamily="'Orbitron',monospace"
         fontSize={c.solFontSize ?? 9}
         fill={c.minorTextColor ?? "rgba(255,255,255,0.18)"} letterSpacing="5">
         {(_displayCur && _displayCur !== "SOL") ? _displayCur : "SOL"}
       </text>
 
       {/* % return */}
-      <text x={PAD} y="244" fontFamily="'Orbitron',monospace" fontWeight="700"
-        fontSize="20" fill={pnlColor} opacity="0.72">
+      <text x={PAD} y={c.pctReturnY ?? 244} fontFamily="'Orbitron',monospace" fontWeight="700"
+        fontSize={c.pctReturnSize ?? 20} fill={pnlColor} opacity="0.72">
         {pct >= 0 ? '+' : ''}{fmt(Math.abs(pct), 1)}%
       </text>
 
