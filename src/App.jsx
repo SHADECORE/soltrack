@@ -209,7 +209,7 @@ async function fetchTrades(wallet, workerUrl, onProgress, signal, headers = {}) 
 // ── SETTINGS ──────────────────────────────────────────────────────────────────
 // Hardcoded worker URL — visible in network requests anyway, not a secret.
 // Admin can override via Settings > Worker URL to migrate without redeployment.
-const DEFAULT_WORKER_URL = "https://soltrack.shadecore.workers.dev";
+const DEFAULT_WORKER_URL = "https://soltrack.space0amazing.workers.dev";
 
 const DEFAULT_SETTINGS = {
   appName: "SOLTRACK",
