@@ -4973,6 +4973,54 @@ function SettingsPanel({ S, setSetting, setS }) {
         } catch { alert("Invalid preset file"); }
       }; r.readAsText(file);
     }; inp.click();
+
+  const exportWallets = () => {
+    const data = wallets.map(w => ({
+      address:    w.address,
+      label:      w.label,
+      colorIdx:   w.colorIdx,
+      archived:   w.archived   ?? false,
+      excludeAll: w.excludeAll ?? false,
+    }));
+    const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = `soltrack-wallets-${Date.now()}.json`;
+    a.click();
+  };
+
+  const importWallets = () => {
+    const inp = document.createElement("input");
+    inp.type = "file"; inp.accept = ".json";
+    inp.onchange = (e) => {
+      const file = e.target.files[0]; if (!file) return;
+      const r = new FileReader();
+      r.onload = async (ev) => {
+        try {
+          const parsed = JSON.parse(ev.target.result);
+          if (!Array.isArray(parsed)) { alert("Invalid wallet file — expected an array."); return; }
+          const existing = new Set(wallets.map(w => w.address));
+          const maxColor = wallets.length ? Math.max(...wallets.map(w => w.colorIdx ?? 0)) + 1 : 0;
+          const toAdd = parsed
+            .filter(w => w.address && !existing.has(w.address))
+            .map((w, i) => ({
+              id:         `w_imp_${Date.now()}_${i}`,
+              address:    w.address,
+              label:      w.label ?? w.address.slice(0, 8),
+              colorIdx:   w.colorIdx ?? (maxColor + i),
+              archived:   w.archived   ?? false,
+              excludeAll: w.excludeAll ?? false,
+              trades: [], loaded: false,
+            }));
+          if (!toAdd.length) { alert("No new wallets to import."); return; }
+          setWallets(prev => [...prev, ...toAdd]);
+          toAdd.forEach(w => runFetch(w.id, w.address));
+        } catch { alert("Invalid wallet file."); }
+      };
+      r.readAsText(file);
+    };
+    inp.click();
+  };
   };
 
   // ── Graph shape rules editor
@@ -5279,6 +5327,17 @@ function SettingsPanel({ S, setSetting, setS }) {
           <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 12 }}>
             {sbtn("EXPORT SETTINGS", exportPreset, S.accentGreen)}
             {sbtn("IMPORT SETTINGS", importPreset, S.accentPurple)}
+          </div>
+          <div style={{ ...mono, fontSize: 8, color: S.textDim, letterSpacing: ".1em", marginBottom: 6 }}>
+            WALLETS
+          </div>
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 12 }}>
+            {sbtn("EXPORT WALLETS", exportWallets, S.accentGreen)}
+            {sbtn("IMPORT WALLETS", importWallets, S.accentPurple)}
+          </div>
+          <div style={{ color: S.textDim, fontSize: 9, fontFamily: "'DM Mono',monospace", marginBottom: 12, lineHeight: 1.6 }}>
+            Export your wallet list as JSON to transfer between devices or domains.
+            Import adds wallets not already present — existing wallets are untouched.
           </div>
           <div style={{ paddingTop: 12, borderTop: `1px solid ${S.borderColor}`, display: "flex", flexDirection: "column", gap: 8 }}>
             <button onClick={() => setS(DEFAULT_SETTINGS)}
