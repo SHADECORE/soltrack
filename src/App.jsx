@@ -5020,6 +5020,67 @@ function MigrateWalletButton({ S, workerUrl }) {
   );
 }
 
+function HeliusKeyField({ S, setSetting }) {
+  const [heliusInput, setHeliusInput] = useState(S.heliusKey ?? "");
+  const [keySaving, setKeySaving] = useState(false);
+  const [keyStatus, setKeyStatus] = useState("");
+  const mono = { fontFamily: "'DM Mono',monospace" };
+  useEffect(() => { setHeliusInput(S.heliusKey ?? ""); }, [S.heliusKey]);
+  const saveKey = async (val) => {
+    const trimmed = val.trim();
+    if (!trimmed || trimmed === S.heliusKey) return;
+    setKeySaving(true); setKeyStatus("");
+    try {
+      const base = sanitizeWorkerUrl(S.workerUrl);
+      const token = localStorage.getItem("soltrack_user_token") ?? "";
+      const res = await fetch(`${base}/auth/setup-key`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}` },
+        body: JSON.stringify({ heliusKey: trimmed }),
+      });
+      if (!res.ok) throw new Error(await res.text());
+      setSetting("heliusKey", trimmed);
+      setKeyStatus("saved");
+      setTimeout(() => setKeyStatus(""), 2000);
+    } catch {
+      setKeyStatus("error");
+      setTimeout(() => setKeyStatus(""), 3000);
+    } finally { setKeySaving(false); }
+  };
+  const unchanged = heliusInput === S.heliusKey;
+  return (
+    <>
+      <div style={{ display: "flex", gap: 6 }}>
+        <input className="sinp" placeholder="your-helius-api-key" type="password"
+          value={heliusInput}
+          onChange={e => { setHeliusInput(e.target.value); setKeyStatus(""); }}
+          onBlur={e => saveKey(e.target.value)}
+          onKeyDown={e => e.key === "Enter" && saveKey(heliusInput)}
+          style={{ ...mono }} />
+        <button onClick={() => saveKey(heliusInput)}
+          disabled={keySaving || !heliusInput.trim() || unchanged} className="sb"
+          style={{ padding: "8px 14px",
+            borderColor: keyStatus === "saved" ? S.accentGreen : keyStatus === "error" ? S.accentRed : S.accentGreen + "44",
+            color: keyStatus === "saved" ? S.accentGreen : keyStatus === "error" ? S.accentRed : S.accentGreen,
+            opacity: (keySaving || !heliusInput.trim() || unchanged) ? 0.4 : 1,
+            "--border": S.borderColor, "--dim": S.textDim, "--mid": S.textMid, "--accent": S.accentGreen }}>
+          {keySaving ? "…" : keyStatus === "saved" ? "✓ SAVED" : keyStatus === "error" ? "✗ FAIL" : "SAVE"}
+        </button>
+        {S.heliusKey && (
+          <button onClick={() => { setSetting("heliusKey", ""); setHeliusInput(""); }} className="sb"
+            style={{ padding: "8px 10px", borderColor: S.accentRed + "44", color: S.accentRed,
+              "--border": S.borderColor, "--dim": S.textDim, "--mid": S.textMid, "--accent": S.accentGreen }}>CLR</button>
+        )}
+      </div>
+      {keyStatus === "error" && (
+        <div style={{ color: S.accentRed, fontSize: 9, ...mono, marginTop: 4 }}>
+          Failed to update on server — check connection.
+        </div>
+      )}
+    </>
+  );
+}
+
 function SettingsPanel({ S, setSetting, setS }) {
   const orb = { fontFamily: "'Orbitron',monospace" };
   const mono = { fontFamily: "'DM Mono',monospace" };
@@ -5295,17 +5356,7 @@ function SettingsPanel({ S, setSetting, setS }) {
           {sectionTitle("CONNECTION")}
           <div style={{ marginBottom: 12 }}>
             {fieldLabel("HELIUS API KEY")}
-            <div style={{ display: "flex", gap: 6 }}>
-              <input className="sinp" placeholder="your-helius-api-key"
-                type="password"
-                value={S.heliusKey} onChange={e => setSetting("heliusKey", e.target.value)}
-                style={{ fontFamily: "'DM Mono',monospace" }} />
-              {S.heliusKey && (
-                <button onClick={() => setSetting("heliusKey", "")} className="sb"
-                  style={{ padding: "8px 12px", borderColor: S.accentRed + "44", color: S.accentRed,
-                    "--border": S.borderColor, "--dim": S.textDim, "--mid": S.textMid, "--accent": S.accentGreen }}>CLR</button>
-              )}
-            </div>
+            <HeliusKeyField S={S} setSetting={setSetting} />
             <div style={{ color: S.textDim, fontSize: 9, fontFamily: "'DM Mono',monospace", marginTop: 4 }}>
               Get a free key at <a href="https://helius.dev" target="_blank" rel="noopener"
                 style={{ color: S.accentGreen }}>helius.dev</a> → Dashboard → API Keys
