@@ -284,6 +284,7 @@ const DEFAULT_SETTINGS = {
   workerUrl: DEFAULT_WORKER_URL,
   heliusKey: "",
   cardDesignV2: false,  // false = classic V1 design, true = new V2 design
+  defaultCardV2: {},    // global V2 card defaults (never mixed with V1's defaultCard)
   // shareCard: removed — card appearance is now per-rank (rank.card), see DEFAULT_CARD below
   // ── Rank definitions (editable in admin) ─────────────────────────────────
   pnlRanks: [
@@ -3235,11 +3236,17 @@ function AdminPanel({ S, setSetting }) {
           <span style={{ ...orb, fontWeight: 900, fontSize: 13, letterSpacing: ".2em", color: "#fff" }}>SOLTRACK ADMIN</span>
         </div>
         <div style={{ display: "flex", gap: 12 }}>
-          {["wallets","ranks","card"].map(t => (
-            <button key={t} onClick={() => setAdminTab(t)}
-              style={{ ...mono, background:"none", border:`1px solid ${adminTab===t?green:border}`,
-                color:adminTab===t?green:dim, cursor:"pointer", padding:"4px 12px", fontSize:9, letterSpacing:".1em" }}>
-              {t.toUpperCase()}
+          {[
+            { id:'wallets',  label:'WALLETS'     },
+            { id:'ranks',    label:'RANKS (OLD)' },
+            { id:'card',     label:'CARD (OLD)'  },
+            { id:'ranks_v2', label:'RANKS V2'    },
+            { id:'card_v2',  label:'CARD V2'     },
+          ].map(({id,label}) => (
+            <button key={id} onClick={() => setAdminTab(id)}
+              style={{ ...mono, background:"none", border:`1px solid ${adminTab===id?green:border}`,
+                color:adminTab===id?green:dim, cursor:"pointer", padding:"4px 12px", fontSize:9, letterSpacing:".1em" }}>
+              {label}
             </button>
           ))}
           <button className="lbtn" style={{ "--accent": green, fontSize: 9 }} onClick={loadData}>REFRESH</button>
@@ -3771,6 +3778,316 @@ function AdminPanel({ S, setSetting }) {
             </div>
           );
         })()}
+
+        {/* ── RANKS V2 TAB ── */}
+        {adminTab === "ranks_v2" && (() => {
+          const sortedRanks = [...ranks].sort((a,b) =>
+            (b.min===-Infinity)?-1:(a.min===-Infinity)?1:b.min-a.min);
+          const selIdx   = Math.min(selectedRankIdx, sortedRanks.length - 1);
+          const previewR = sortedRanks[selIdx] ?? sortedRanks[0];
+          if (!previewR) return <div style={{ ...mono, color:dim, fontSize:10 }}>No ranks defined.</div>;
+          const origIdx  = ranks.findIndex(x => x===previewR || (x.name===previewR.name && x.min===previewR.min));
+          const c        = { ...DEFAULT_CARD, ...(previewR.card ?? {}) };
+          const updateCard = (k, v) => updateRank(origIdx, 'card', { ...c, [k]: v });
+
+          const V2Section = ({ title }) => (
+            <div style={{ ...mono, fontSize:8, color:green, letterSpacing:'.14em',
+              borderBottom:`1px solid ${green}22`, paddingBottom:4, marginTop:14, marginBottom:8 }}>
+              {title}</div>
+          );
+          const V2Row = ({ label, children }) => (
+            <div style={{ display:'flex', alignItems:'center', gap:8, marginBottom:6 }}>
+              <span style={{ ...mono, fontSize:8, color:dim, letterSpacing:'.08em', minWidth:130, flexShrink:0 }}>{label}</span>
+              {children}
+            </div>
+          );
+          const V2Slider = ({ label, k, min, max, step=1, unit='' }) => {
+            const val = c[k] ?? DEFAULT_CARD[k] ?? min;
+            return (
+              <V2Row label={label}>
+                <input type="range" min={min} max={max} step={step} value={Math.min(max,Math.max(min,val))}
+                  onChange={e => updateCard(k, +e.target.value)}
+                  style={{ flex:1, accentColor:green, minWidth:0 }}/>
+                <input type="number" step={step} value={val}
+                  onChange={e => { const v=parseFloat(e.target.value); if(!isNaN(v)) updateCard(k,v); }}
+                  style={{ ...mono, background:'#111', border:`1px solid ${border}`,
+                    color:'#ccc', fontSize:9, width:52, padding:'2px 4px', textAlign:'right', flexShrink:0 }}/>
+                {unit && <span style={{ ...mono, fontSize:8, color:'#444', flexShrink:0 }}>{unit}</span>}
+              </V2Row>
+            );
+          };
+          const V2Toggle = ({ label, k }) => (
+            <V2Row label={label}>
+              <label style={{ cursor:'pointer', display:'flex', alignItems:'center', gap:6 }}>
+                <input type="checkbox" checked={c[k] ?? DEFAULT_CARD[k]}
+                  onChange={e => updateCard(k, e.target.checked)}
+                  style={{ accentColor:green, cursor:'pointer' }}/>
+                <span style={{ ...mono, fontSize:9, color:(c[k]??DEFAULT_CARD[k]) ? green : dim }}>
+                  {(c[k]??DEFAULT_CARD[k]) ? 'ON' : 'OFF'}
+                </span>
+              </label>
+            </V2Row>
+          );
+          const V2Color = ({ label, k }) => {
+            const val = c[k] ?? DEFAULT_CARD[k] ?? '#000000';
+            const toHex = v => v?.match(/^#[0-9a-fA-F]{6}$/i) ? v : '#000000';
+            return (
+              <V2Row label={label}>
+                <div style={{ position:'relative', width:22, height:22, flexShrink:0 }}>
+                  <div style={{ position:'absolute', inset:0, background:val, border:`1px solid ${border}`, borderRadius:2 }}/>
+                  <input type="color" value={toHex(val)} onChange={e => updateCard(k, e.target.value)}
+                    style={{ position:'absolute', inset:0, opacity:0, width:'100%', height:'100%', cursor:'pointer' }}/>
+                </div>
+                <input type="text" key={val} defaultValue={val}
+                  onBlur={e => updateCard(k, e.target.value.trim())}
+                  onKeyDown={e => { if(e.key==='Enter') updateCard(k, e.target.value.trim()); }}
+                  style={{ ...mono, background:'#111', border:`1px solid ${border}`,
+                    color:'#ddd', fontSize:9, flex:1, padding:'3px 6px' }}/>
+              </V2Row>
+            );
+          };
+
+          return (
+            <div style={{ display:'flex', gap:0, alignItems:'flex-start', minHeight:600 }}>
+              {/* LEFT: rank picker + V2-specific settings */}
+              <div style={{ width:380, flexShrink:0, borderRight:`1px solid ${border}`, paddingRight:20,
+                overflowY:'auto', maxHeight:'calc(100vh - 100px)' }}>
+                {/* Toolbar */}
+                <div style={{ display:'flex', alignItems:'center', gap:8, marginBottom:14 }}>
+                  <div style={{ flex:1, position:'relative' }}>
+                    <select value={selIdx} onChange={e => setSelectedRankIdx(+e.target.value)}
+                      style={{ ...mono, background:'#111', border:`1px solid ${border}`, color:'#fff',
+                        padding:'5px 28px 5px 10px', fontSize:10, width:'100%', cursor:'pointer',
+                        appearance:'none', WebkitAppearance:'none' }}>
+                      {sortedRanks.map((r,i) => (
+                        <option key={i} value={i}>{r.name}{r.min===-Infinity?' (< 0)':`(≥ ${r.min})`}</option>
+                      ))}
+                    </select>
+                    <div style={{ position:'absolute', right:8, top:'50%', transform:'translateY(-50%)',
+                      color:dim, pointerEvents:'none', fontSize:9 }}>▾</div>
+                  </div>
+                  <button onClick={saveRanks}
+                    style={{ ...mono, background:green+'22', border:`1px solid ${green}`, color:green,
+                      cursor:'pointer', padding:'5px 10px', fontSize:9, letterSpacing:'.06em', whiteSpace:'nowrap' }}>
+                    SAVE
+                  </button>
+                </div>
+                {/* Rank identity strip */}
+                <div style={{ display:'flex', alignItems:'center', gap:8, marginBottom:14, padding:'8px 10px',
+                  background:`${previewR.color}0a`, border:`1px solid ${previewR.color}33` }}>
+                  <div style={{ width:8, height:8, background:previewR.color, boxShadow:`0 0 8px ${previewR.color}` }}/>
+                  <span style={{ fontFamily:"'Orbitron',monospace", fontSize:11, fontWeight:700,
+                    color:previewR.color, letterSpacing:'.12em' }}>{previewR.name}</span>
+                  <span style={{ ...mono, fontSize:8, color:dim, marginLeft:'auto' }}>
+                    {previewR.min===-Infinity ? '< 0 SOL' : `≥ ${previewR.min} SOL`}
+                  </span>
+                </div>
+
+                <V2Section title="ACCENT COLOR"/>
+                <V2Toggle label="Use rank color" k="useRankColor"/>
+                {!(c.useRankColor ?? DEFAULT_CARD.useRankColor) && (
+                  <V2Color label="Custom color" k="customColor"/>
+                )}
+
+                <V2Section title="GRADIENT"/>
+                <V2Slider label="Angle (°)"     k="gradientAngle"  min={0}   max={360} step={5}    unit="°"/>
+                <V2Slider label="G1 opacity"    k="g1Opacity"      min={0}   max={1}   step={0.05}/>
+                <V2Slider label="G1 stop (%)"   k="g1Stop"         min={0}   max={60}  step={1}    unit="%"/>
+                <V2Slider label="Mid stop (%)"  k="midStop"        min={10}  max={90}  step={1}    unit="%"/>
+                <V2Color  label="Mid color"     k="midColor"/>
+                <V2Slider label="End stop (%)"  k="endStop"        min={50}  max={100} step={1}    unit="%"/>
+                <V2Color  label="End color"     k="endColor"/>
+
+                <V2Section title="BORDER"/>
+                <V2Slider label="Width (px)"    k="borderWidth"    min={0}   max={8}   step={0.5}  unit="px"/>
+                <V2Slider label="Opacity"       k="borderOpacity"  min={0}   max={1}   step={0.05}/>
+
+                <V2Section title="TICKET DIVIDER"/>
+                <V2Slider label="Thickness"     k="dividerWidth"   min={0}   max={6}   step={0.5}  unit="px"/>
+                <V2Slider label="Opacity"       k="dividerOpacity" min={0}   max={1}   step={0.05}/>
+                <V2Row label="Dash pattern">
+                  <input value={c.dividerDash ?? DEFAULT_CARD.dividerDash}
+                    onChange={e => updateCard('dividerDash', e.target.value)}
+                    placeholder="4,4"
+                    style={{ ...mono, background:'#111', border:`1px solid ${border}`, color:'#fff',
+                      padding:'3px 7px', fontSize:9, flex:1 }}/>
+                  <span style={{ ...mono, fontSize:7, color:dim }}>e.g. 4,4 · 8,2</span>
+                </V2Row>
+
+                <V2Section title="DISPLAY"/>
+                <V2Toggle label="Show PnL chart" k="showChart"/>
+
+                <V2Section title="BACKGROUND IMAGE"/>
+                <V2Row label={c.bgImage ? 'Image set ✓' : 'No image'}>
+                  <label style={{ ...mono, fontSize:8, color:dim, cursor:'pointer',
+                    border:`1px dashed ${border}`, padding:'3px 8px', flex:1, textAlign:'center' }}>
+                    {c.bgImage ? '↑ REPLACE' : '↑ UPLOAD IMAGE'}
+                    <input type="file" accept="image/*" style={{ display:'none' }}
+                      onChange={e => {
+                        const file = e.target.files?.[0]; if (!file) return;
+                        if (file.size > 2*1024*1024) { alert('Max 2 MB'); return; }
+                        const reader = new FileReader();
+                        reader.onload = ev => updateCard('bgImage', ev.target.result);
+                        reader.readAsDataURL(file);
+                        e.target.value = '';
+                      }}/>
+                  </label>
+                  {c.bgImage && (
+                    <button onClick={() => updateCard('bgImage', null)}
+                      style={{ ...mono, fontSize:8, color:'#ff4444', background:'none',
+                        border:'1px solid #ff003333', cursor:'pointer', padding:'3px 7px' }}>✕ CLEAR</button>
+                  )}
+                </V2Row>
+                {c.bgImage && (
+                  <div style={{ ...mono, fontSize:8, color:dim, marginTop:4, lineHeight:1.6 }}>
+                    Gradient overlays image. Stub area fades to black automatically.
+                  </div>
+                )}
+
+                <div style={{ height:20 }}/>
+              </div>
+
+              {/* RIGHT: V2 live preview */}
+              <div style={{ flex:1, display:'flex', flexDirection:'column', alignItems:'center',
+                paddingLeft:28, paddingTop:4, gap:14, position:'sticky', top:0 }}>
+                <div style={{ ...mono, fontSize:8, color:dim, letterSpacing:'.12em' }}>LIVE PREVIEW · NEW DESIGN</div>
+                <div style={{ transform:'scale(0.82)', transformOrigin:'top center', marginBottom:-80 }}>
+                  <ShareCardInnerV2
+                    S={S}
+                    pnlCurve={[]}
+                    closed={[]}
+                    totalPnl={previewR.min === -Infinity ? -1.5 : (previewR.min ?? 0) + 0.5}
+                    winRate="58.0"
+                    tf="ALL"
+                    walletLabel={previewR.name}
+                    _overrideRank={previewR}
+                  />
+                </div>
+                <div style={{ ...mono, fontSize:8, color:dim, letterSpacing:'.08em', textAlign:'center', marginTop:4 }}>
+                  · Changes saved with <span style={{ color:'#fff' }}>SAVE</span> button ·
+                </div>
+              </div>
+            </div>
+          );
+        })()}
+
+        {/* ── CARD V2 TAB ── */}
+        {adminTab === "card_v2" && (() => {
+          const dc    = S.defaultCardV2 ?? {};
+          const setDC = (k, v) => setSetting("defaultCardV2", { ...dc, [k]: v });
+          const resetDC = k => { const nd={...dc}; delete nd[k]; setSetting("defaultCardV2", nd); };
+
+          const V2Section = ({ title }) => (
+            <div style={{ ...mono, fontSize:8, color:green, letterSpacing:".14em",
+              borderBottom:`1px solid ${green}22`, paddingBottom:4, marginTop:14, marginBottom:8 }}>
+              {title}</div>
+          );
+          const V2Num = ({ k, label, min, max, step=1, unit="" }) => {
+            const val = dc[k] ?? DEFAULT_CARD[k] ?? min;
+            return (
+              <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:8 }}>
+                <label style={{ ...mono, fontSize:9, color:dim, width:200, flexShrink:0 }}>{label}</label>
+                <input type="range" min={min} max={max} step={step} value={Math.min(max,Math.max(min,val))}
+                  onChange={e => setDC(k, +e.target.value)}
+                  style={{ flex:1, accentColor:green }}/>
+                <span style={{ ...mono, fontSize:9, color:green, width:48, textAlign:"right" }}>{val}{unit}</span>
+                <button onClick={() => resetDC(k)} title="Reset"
+                  style={{ background:"none", border:`1px solid ${border}`, color:dim,
+                    cursor:"pointer", fontSize:8, padding:"2px 6px", ...mono, flexShrink:0 }}>↺</button>
+              </div>
+            );
+          };
+          const V2Col = ({ k, label }) => {
+            const val = dc[k] ?? DEFAULT_CARD[k] ?? '#000000';
+            const toHex = v => v?.match(/^#[0-9a-fA-F]{6}$/i) ? v : '#000000';
+            return (
+              <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:8 }}>
+                <label style={{ ...mono, fontSize:9, color:dim, width:200, flexShrink:0 }}>{label}</label>
+                <input type="color" value={toHex(val)} onChange={e => setDC(k, e.target.value)}
+                  style={{ width:32, height:24, border:"none", background:"none", cursor:"pointer" }}/>
+                <input type="text" value={val} onChange={e => setDC(k, e.target.value)}
+                  style={{ flex:1, background:"#0a0a0a", border:`1px solid ${border}`, color:"#fff",
+                    ...mono, fontSize:9, padding:"3px 6px" }}/>
+                <button onClick={() => resetDC(k)} title="Reset"
+                  style={{ background:"none", border:`1px solid ${border}`, color:dim,
+                    cursor:"pointer", fontSize:8, padding:"2px 6px", ...mono, flexShrink:0 }}>↺</button>
+              </div>
+            );
+          };
+
+          const previewPnl = dc.previewPnl ?? 1.234;
+          const sampleCurve = [{cumPnl:0},{cumPnl:-0.3},{cumPnl:0.2},{cumPnl:0.8},{cumPnl:previewPnl}];
+          const sampleClosed = [{ solIn:0.5, solOut:0.5+previewPnl }];
+
+          return (
+            <div style={{ padding:"4px 0" }}>
+              <div style={{ ...mono, fontSize:9, color:dim, marginBottom:12, lineHeight:1.7 }}>
+                Global defaults for the new V2 card design. Per-rank overrides (Ranks V2 tab) take priority.
+                Click ↺ to reset any field to its built-in default.
+              </div>
+
+              {/* Live preview */}
+              <div style={{ marginBottom:16, display:"flex", gap:12, flexWrap:"wrap" }}>
+                <div style={{ ...mono, fontSize:8, color:green, letterSpacing:".14em", width:'100%' }}>LIVE PREVIEW · NEW DESIGN</div>
+                <div style={{ transform:"scale(0.72)", transformOrigin:"top left", flexShrink:0, height:354 }}>
+                  <ShareCardInnerV2
+                    S={{ ...S, defaultCardV2: dc }}
+                    pnlCurve={sampleCurve} closed={sampleClosed}
+                    totalPnl={previewPnl} winRate="66.67" tf="ALL"
+                    walletLabel="PREVIEW WALLET"/>
+                </div>
+                <div style={{ flex:1, minWidth:160 }}>
+                  <div style={{ ...mono, fontSize:8, color:dim, marginBottom:8 }}>PREVIEW PnL VALUE</div>
+                  <input type="number" step="0.001" value={previewPnl}
+                    onChange={e => setDC("previewPnl", +e.target.value)}
+                    style={{ width:"100%", background:"#0a0a0a", border:`1px solid ${border}`,
+                      color:"#fff", ...mono, fontSize:11, padding:"5px 8px", boxSizing:"border-box" }}/>
+                  <div style={{ ...mono, fontSize:8, color:dim, marginTop:6, lineHeight:1.6, opacity:0.6 }}>
+                    Change to test different PnL magnitudes.
+                  </div>
+                </div>
+              </div>
+
+              <V2Section title="GRADIENT"/>
+              {V2Num({ k:"gradientAngle",  label:"Angle",        min:0,   max:360, step:5,    unit:"°" })}
+              {V2Num({ k:"g1Opacity",      label:"G1 opacity",   min:0,   max:1,   step:0.05         })}
+              {V2Num({ k:"g1Stop",         label:"G1 stop",      min:0,   max:60,  step:1,    unit:"%" })}
+              {V2Num({ k:"midStop",        label:"Mid stop",     min:10,  max:90,  step:1,    unit:"%" })}
+              {V2Col({ k:"midColor",       label:"Mid color"   })}
+              {V2Num({ k:"endStop",        label:"End stop",     min:50,  max:100, step:1,    unit:"%" })}
+              {V2Col({ k:"endColor",       label:"End color"   })}
+
+              <V2Section title="BORDER"/>
+              {V2Num({ k:"borderWidth",    label:"Width",        min:0,   max:8,   step:0.5,  unit:"px" })}
+              {V2Num({ k:"borderOpacity",  label:"Opacity",      min:0,   max:1,   step:0.05         })}
+
+              <V2Section title="TICKET DIVIDER"/>
+              {V2Num({ k:"dividerWidth",   label:"Thickness",    min:0,   max:6,   step:0.5,  unit:"px" })}
+              {V2Num({ k:"dividerOpacity", label:"Opacity",      min:0,   max:1,   step:0.05         })}
+              <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:8 }}>
+                <label style={{ ...mono, fontSize:9, color:dim, width:200, flexShrink:0 }}>Dash pattern</label>
+                <input type="text" value={dc.dividerDash ?? DEFAULT_CARD.dividerDash}
+                  onChange={e => setDC("dividerDash", e.target.value)} placeholder="4,4"
+                  style={{ flex:1, background:"#0a0a0a", border:`1px solid ${border}`, color:"#fff",
+                    ...mono, fontSize:9, padding:"3px 6px" }}/>
+              </div>
+
+              <V2Section title="DISPLAY"/>
+              <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:8 }}>
+                <label style={{ ...mono, fontSize:9, color:dim, width:200, flexShrink:0 }}>Show PnL chart</label>
+                <label style={{ cursor:'pointer', display:'flex', alignItems:'center', gap:6 }}>
+                  <input type="checkbox" checked={dc.showChart ?? DEFAULT_CARD.showChart}
+                    onChange={e => setDC('showChart', e.target.checked)}
+                    style={{ accentColor:green, cursor:'pointer' }}/>
+                  <span style={{ ...mono, fontSize:9, color:(dc.showChart??DEFAULT_CARD.showChart)?green:dim }}>
+                    {(dc.showChart??DEFAULT_CARD.showChart)?'ON':'OFF'}
+                  </span>
+                </label>
+              </div>
+            </div>
+          );
+        })()}
+
                 {adminTab === "wallets" && data && (
           <>
             <div style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 12, marginBottom: 24 }}>
@@ -4625,11 +4942,13 @@ const V2_TRI = (() => {
 function ShareCardInnerV2({ S, pnlCurve, closed, totalPnl, winRate, tf, walletLabel, _overrideRank, cardPnlCompact = false }) {
   const ranks = S.pnlRanks ?? PNL_RANKS;
   const rank  = _overrideRank ?? getPnlRank(totalPnl, ranks);
-  const c     = { ...DEFAULT_CARD, ...(S?.defaultCard ?? {}), ...(rank.card ?? {}) };
+  // V2 uses its own global defaults key (defaultCardV2) so it never interferes with V1 (defaultCard)
+  const c     = { ...DEFAULT_CARD, ...(S?.defaultCardV2 ?? {}), ...(rank.card ?? {}) };
   const notchStyle = S.cardNotchStyle ?? 'semicircle';
   const showChart  = c.showChart ?? true;
   const ticket     = notchStyle === 'triangle' ? V2_TRI : V2_SEMI;
-  const col        = rank.color;
+  // Accent color: use rank.color OR per-rank custom override
+  const col        = (c.useRankColor ?? true) ? rank.color : (c.customColor ?? '#ffffff');
   const isPos      = totalPnl >= 0;
   const pnlColor   = isPos ? col : '#ff3355';
 
@@ -4782,10 +5101,30 @@ function ShareCardInnerV2({ S, pnlCurve, closed, totalPnl, winRate, tf, walletLa
           <stop offset={`${c.midStop??44}%`}  stopColor={c.midColor??'#0a0a0a'}/>
           <stop offset={`${c.endStop??100}%`} stopColor={c.endColor??'#040404'}/>
         </linearGradient>
+        {/* Stub fade gradient — only used when bgImage is set */}
+        {c.bgImage && (
+          <linearGradient id={`${uid}stubfade`} x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%"   stopColor="#000000" stopOpacity="0"/>
+            <stop offset="100%" stopColor="#000000" stopOpacity="0.92"/>
+          </linearGradient>
+        )}
       </defs>
 
-      {/* Background */}
-      <path d={ticket} fill={`url(#${bgId})`}/>
+      {/* Background image (optional) — clipped to ticket shape */}
+      {c.bgImage && (
+        <image x="0" y="0" width={V2_W} height={V2_H}
+          href={c.bgImage} clipPath={`url(#${clipId})`}
+          preserveAspectRatio="xMidYMid slice"/>
+      )}
+
+      {/* Gradient fill — full opacity when no image, reduced when image present */}
+      <path d={ticket} fill={`url(#${bgId})`} opacity={c.bgImage ? 0.55 : 1}/>
+
+      {/* Stub fade overlay — only when bgImage is set; covers notch → bottom */}
+      {c.bgImage && (
+        <rect x="0" y={V2_DIV_Y - V2_CUT} width={V2_W} height={V2_H - (V2_DIV_Y - V2_CUT)}
+          fill={`url(#${uid}stubfade)`} clipPath={`url(#${clipId})`}/>
+      )}
 
       {/* Band tint + bottom edge */}
       <rect x="0" y="0" width={V2_W} height={V2_BAND_H}
@@ -4793,12 +5132,15 @@ function ShareCardInnerV2({ S, pnlCurve, closed, totalPnl, winRate, tf, walletLa
       <line x1="0" y1={V2_BAND_H} x2={V2_W} y2={V2_BAND_H}
         stroke={col} strokeWidth=".7" opacity=".2" clipPath={`url(#${clipId})`}/>
 
-      {/* Outer border */}
-      <path d={ticket} fill="none" stroke={col} strokeWidth="1.1" opacity=".38"/>
+      {/* Outer border — uses rank border settings, rounded joins for uniform appearance */}
+      <path d={ticket} fill="none" stroke={col}
+        strokeWidth={c.borderWidth ?? 1.1} opacity={c.borderOpacity ?? 0.38}
+        strokeLinejoin="round" strokeLinecap="round"/>
 
       {/* Stub divider */}
       <line x1="22" y1={V2_DIV_Y} x2="318" y2={V2_DIV_Y}
-        stroke={col} strokeDasharray="4,4" strokeWidth="1" opacity=".48"/>
+        stroke={col} strokeDasharray={c.dividerDash ?? '4,4'}
+        strokeWidth={c.dividerWidth ?? 1} opacity={c.dividerOpacity ?? 0.48}/>
 
       {/* L-brackets — PAD=24px gap from edge, band, and divider */}
       <polyline points={`${V2_BL_X},${V2_BT_Y+V2_BLEN} ${V2_BL_X},${V2_BT_Y} ${V2_BL_X+V2_BLEN},${V2_BT_Y}`}
