@@ -283,6 +283,7 @@ const DEFAULT_SETTINGS = {
   graphShapeNormalize: true,
   workerUrl: DEFAULT_WORKER_URL,
   heliusKey: "",
+  cardDesignV2: false,  // false = classic V1 design, true = new V2 design
   // shareCard: removed — card appearance is now per-rank (rank.card), see DEFAULT_CARD below
   // ── Rank definitions (editable in admin) ─────────────────────────────────
   pnlRanks: [
@@ -4563,6 +4564,340 @@ function ShareCardInner({ S, pnlCurve, closed, totalPnl, winRate, tf, walletLabe
     </svg>
   );
 }
+// ── V2 CARD: Solana logo helper & constants ───────────────────────────────────
+// Logo unit space 215×139: bars h=35, w=180, gap=17, 45°→offset=35
+// Bar1(/): TL(35,0) TR(215,0) BR(180,35) BL(0,35)
+// Bar2(\): TL(0,52) TR(180,52) BR(215,87) BL(35,87)   ← mirrored
+// Bar3(/): TL(35,104) TR(215,104) BR(180,139) BL(0,139)
+function _v2Rq(pts, r=5) {
+  const n = pts.length;
+  const lp = (a,b,t) => [a[0]+t*(b[0]-a[0]), a[1]+t*(b[1]-a[1])];
+  const ds = (a,b) => Math.hypot(b[0]-a[0], b[1]-a[1]);
+  const nd = pts.map((c,i) => {
+    const p = pts[(i-1+n)%n], x = pts[(i+1)%n];
+    const t1 = Math.min(r/ds(p,c), .45), t2 = Math.min(r/ds(c,x), .45);
+    return { a: lp(c,p,t1), c, b: lp(c,x,t2) };
+  });
+  const f = v => v.toFixed(2);
+  let d = `M${f(nd[0].b[0])},${f(nd[0].b[1])}`;
+  for (let i=0; i<n; i++) {
+    const j = (i+1)%n;
+    d += ` L${f(nd[j].a[0])},${f(nd[j].a[1])} Q${f(nd[j].c[0])},${f(nd[j].c[1])} ${f(nd[j].b[0])},${f(nd[j].b[1])}`;
+  }
+  return d + 'Z';
+}
+const V2_LOGO_PATH = [
+  _v2Rq([[35,0],[215,0],[180,35],[0,35]]),
+  _v2Rq([[0,52],[180,52],[215,87],[35,87]]),
+  _v2Rq([[35,104],[215,104],[180,139],[0,139]]),
+].join(' ');
+const V2_LW = 215, V2_LH = 139;
+const v2LS   = fs => (0.72*fs)/V2_LH;
+const v2LWpx = fs => V2_LW * v2LS(fs);
+
+const V2_W=340, V2_H=490, V2_PAD=24, V2_BAND_H=50, V2_DIV_Y=370, V2_CUT=20, V2_CORNER=12;
+const V2_S2=22, V2_S3=13, V2_MAX_FS=72, V2_GAP=10, V2_BLEN=16;
+const V2_BL_X=V2_PAD, V2_BR_X=V2_W-V2_PAD;
+const V2_BT_Y=V2_BAND_H+V2_PAD;   // 74
+const V2_BB_Y=V2_DIV_Y-V2_PAD;    // 346
+const V2_RC=6, V2_RCO=+(6/Math.SQRT2).toFixed(2); // 4.24
+
+const V2_SEMI = (() => {
+  const [R,W,H,D,C]=[V2_CORNER,V2_W,V2_H,V2_DIV_Y,V2_CUT];
+  return [`M${R},0 L${W-R},0 Q${W},0 ${W},${R}`,
+    `L${W},${D-C} A${C},${C} 0 0 0 ${W},${D+C}`,
+    `L${W},${H-R} Q${W},${H} ${W-R},${H}`,
+    `L${R},${H} Q0,${H} 0,${H-R}`,
+    `L0,${D+C} A${C},${C} 0 0 0 0,${D-C}`,
+    `L0,${R} Q0,0 ${R},0 Z`].join(' ');
+})();
+const V2_TRI = (() => {
+  const [R,W,H,D,C,rc,rco]=[V2_CORNER,V2_W,V2_H,V2_DIV_Y,V2_CUT,V2_RC,V2_RCO];
+  return [`M${R},0 L${W-R},0 Q${W},0 ${W},${R}`,
+    `L${W},${D-C-rc}`,`Q${W},${D-C} ${W-rco},${D-C+rco}`,
+    `L${W-C},${D}`,`L${W-rco},${D+C-rco}`,`Q${W},${D+C} ${W},${D+C+rc}`,
+    `L${W},${H-R} Q${W},${H} ${W-R},${H}`,`L${R},${H} Q0,${H} 0,${H-R}`,
+    `L0,${D+C+rc}`,`Q0,${D+C} ${rco},${D+C-rco}`,
+    `L${C},${D}`,`L${rco},${D-C+rco}`,`Q0,${D-C} 0,${D-C-rc}`,
+    `L0,${R} Q0,0 ${R},0 Z`].join(' ');
+})();
+
+function ShareCardInnerV2({ S, pnlCurve, closed, totalPnl, winRate, tf, walletLabel, _overrideRank, cardPnlCompact = false }) {
+  const ranks = S.pnlRanks ?? PNL_RANKS;
+  const rank  = _overrideRank ?? getPnlRank(totalPnl, ranks);
+  const c     = { ...DEFAULT_CARD, ...(S?.defaultCard ?? {}), ...(rank.card ?? {}) };
+  const notchStyle = S.cardNotchStyle ?? 'semicircle';
+  const showChart  = c.showChart ?? true;
+  const ticket     = notchStyle === 'triangle' ? V2_TRI : V2_SEMI;
+  const col        = rank.color;
+  const isPos      = totalPnl >= 0;
+  const pnlColor   = isPos ? col : '#ff3355';
+
+  // PnL display string (currency + compact aware, same as V1)
+  const _cur = S?.currency ?? 'SOL';
+  const _raw = solToDisplay(totalPnl, _cur) ?? totalPnl;
+  const displayStr = (() => {
+    const sign = totalPnl < 0 ? '-' : '+';
+    if (cardPnlCompact && Math.abs(_raw) >= 1000) {
+      const k = (Math.abs(_raw) / 1000).toFixed(1);
+      const sym = _cur !== 'SOL' ? (CURRENCY_SYMBOLS[_cur] ?? _cur + ' ') : '';
+      return sign + sym + k + 'k';
+    }
+    return fmtC(totalPnl, S, 2);
+  })();
+
+  const totalSolIn  = closed.reduce((s,x) => s + (x.solIn  || 0), 0);
+  const totalSolOut = closed.reduce((s,x) => s + (x.solOut || 0), 0);
+  const pct    = totalSolIn > 0 ? (totalPnl / totalSolIn) * 100 : 0;
+  const retStr = `${pct >= 0 ? '+' : ''}${fmt(Math.abs(pct), 1)}%`;
+
+  // Gradient — reuse rank gradient settings from V1
+  const gradA = c.gradientAngle ?? 135;
+  const rad   = (gradA * Math.PI) / 180;
+  const gx1 = +(0.5 - 0.5*Math.sin(rad)).toFixed(4);
+  const gy1 = +(0.5 + 0.5*Math.cos(rad)).toFixed(4);
+  const gx2 = +(0.5 + 0.5*Math.sin(rad)).toFixed(4);
+  const gy2 = +(0.5 - 0.5*Math.cos(rad)).toFixed(4);
+  const uid   = rank.name.replace(/\W/g,'');
+  const bgId  = `v2bg-${uid}`;
+  const clipId = `v2clip-${uid}`;
+
+  // ── PnL layout: initial estimate (char-width table, same approach as V1) ──
+  // Used for first render — refined by useEffect below after Orbitron loads.
+  const initialLayout = useMemo(() => {
+    const ORB = ch => {
+      if (/[0-9]/.test(ch)) return 0.62;
+      if ('+-'.includes(ch)) return 0.52;
+      if ('.,'.includes(ch)) return 0.28;
+      if ('$£€'.includes(ch)) return 0.65;
+      if ('zł₴₸₽'.includes(ch)) return 0.72;
+      if (/[A-Z]/.test(ch)) return 0.65;
+      return 0.55;
+    };
+    const availW = V2_W - 2*V2_PAD;
+    const estimateW = fs =>
+      displayStr.split('').reduce((s,ch) => s + fs*ORB(ch), 0) - 1.5*(displayStr.length-1);
+    const contentW = fs => v2LWpx(fs) + V2_GAP + estimateW(fs);
+    let fs = V2_MAX_FS;
+    if (contentW(fs) > availW) {
+      let lo=20, hi=V2_MAX_FS;
+      for (let i=0; i<40; i++) { const m=(lo+hi)/2; contentW(m)<=availW?(lo=m):(hi=m); }
+      fs = lo;
+    }
+    const hPad  = Math.max(V2_PAD, (V2_W - contentW(fs)) / 2);
+    const capH  = 0.72 * fs;
+    const lScl  = v2LS(fs);
+    const lW    = v2LWpx(fs);
+    const tw    = estimateW(fs);
+    const C_MID = (V2_BT_Y + (V2_BB_Y - V2_S3 - 16)) / 2; // 195.5
+    const blockH  = capH + 14 + V2_S3 + 6 + V2_S2;
+    const pnlBase = Math.round(C_MID - blockH/2 + capH);
+    const logoTop = pnlBase - capH;
+    return { fs, hPad, lScl, lW, pnlBase, logoTop,
+      numX: hPad+lW+V2_GAP,
+      tfX: hPad+(lW+V2_GAP+tw)/2, tfY: logoTop-12,
+      retLblY: pnlBase+14+V2_S3, retValY: pnlBase+14+V2_S3+6+V2_S2 };
+  }, [displayStr]);
+
+  const [layout, setLayout] = useState(initialLayout);
+  const pnlNumRef = useRef(null);
+
+  // ── Refine layout after Orbitron is loaded (getBBox = exact measurement) ──
+  useEffect(() => {
+    let cancelled = false;
+    const el = pnlNumRef.current;
+    if (!el) return;
+    document.fonts.ready.then(() => {
+      if (cancelled || !el.getBBox) return;
+      const availW = V2_W - 2*V2_PAD;
+      const contentW = fs => {
+        el.setAttribute('font-size', fs);
+        try { return v2LWpx(fs) + V2_GAP + el.getBBox().width; }
+        catch { return Infinity; }
+      };
+      let fs = V2_MAX_FS;
+      if (contentW(fs) > availW) {
+        let lo=20, hi=V2_MAX_FS;
+        for (let i=0; i<40; i++) { const m=(lo+hi)/2; contentW(m)<=availW?(lo=m):(hi=m); }
+        fs = lo;
+      }
+      el.setAttribute('font-size', fs);
+      const cw    = contentW(fs);
+      const hPad  = Math.max(V2_PAD, (V2_W - cw) / 2);
+      const capH  = 0.72 * fs;
+      const lScl  = v2LS(fs);
+      const lW    = v2LWpx(fs);
+      const tw    = el.getBBox().width;
+      const C_MID = (V2_BT_Y + (V2_BB_Y - V2_S3 - 16)) / 2;
+      const blockH  = capH + 14 + V2_S3 + 6 + V2_S2;
+      const pnlBase = Math.round(C_MID - blockH/2 + capH);
+      const logoTop = pnlBase - capH;
+      if (!cancelled) setLayout({ fs, hPad, lScl, lW, pnlBase, logoTop,
+        numX: hPad+lW+V2_GAP,
+        tfX: hPad+(lW+V2_GAP+tw)/2, tfY: logoTop-12,
+        retLblY: pnlBase+14+V2_S3, retValY: pnlBase+14+V2_S3+6+V2_S2 });
+    });
+    return () => { cancelled = true; };
+  }, [displayStr]);
+
+  const L = layout;
+  const fOrb = `'Orbitron',monospace`;
+
+  // Sparkline
+  const STUB_X=24, STUB_Y=400, CURVE_W=176, CURVE_H=76;
+  let cv = null;
+  if (showChart && pnlCurve && pnlCurve.length >= 2) {
+    const vals = pnlCurve.map(d => d.cumPnl);
+    const mn=Math.min(...vals), mx=Math.max(...vals), rng=mx-mn||1;
+    const px=4, py=4, iw=CURVE_W-px*2, ih=CURVE_H-py*2;
+    const tx = i => px + (i/(vals.length-1))*iw;
+    const ty = v => py + (1-(v-mn)/rng)*ih;
+    cv = {
+      pts: vals.map((v,i)=>`${tx(i).toFixed(1)},${ty(v).toFixed(1)}`).join(' '),
+      lastX: tx(vals.length-1), lastY: ty(vals[vals.length-1]),
+    };
+  }
+
+  // Vol logo dimensions at SIZE_3 (with-graph) and SIZE_2 (no-graph)
+  const vlS3=v2LS(V2_S3), vlW3=Math.round(v2LWpx(V2_S3)), vlH3=Math.round(V2_LH*vlS3);
+  const vlS2=v2LS(V2_S2), vlW2=Math.round(v2LWpx(V2_S2)), vlH2=Math.round(V2_LH*vlS2);
+
+  // With-graph vol: right column x=218, all SIZE_3
+  // Centered in stub zone 400-484 (84px): top_pad=16, bottom_pad=16
+  const WG_X=218, WG_NX=WG_X+vlW3+5;
+  const WG_L1=425, WG_N1=437, WG_L2=456, WG_N2=468;
+
+  // No-graph vol: two columns, SIZE_3 labels + SIZE_2 nums
+  // Centered in stub zone: top_pad=27, bottom_pad=26
+  const NG_LXA=42, NG_LXB=182;
+  const NG_NXA=NG_LXA+vlW2+5, NG_NXB=NG_LXB+vlW2+5;
+  const NG_LBL_Y=436, NG_NUM_Y=458, NG_LOGO_T=NG_NUM_Y-vlH2;
+
+  return (
+    <svg width={V2_W} height={V2_H} xmlns="http://www.w3.org/2000/svg" className="no-ts-scale" style={{ display:'block' }}>
+      <defs>
+        <clipPath id={clipId}><path d={ticket}/></clipPath>
+        <linearGradient id={bgId} x1={gx1} y1={gy1} x2={gx2} y2={gy2}>
+          <stop offset={`${c.g1Stop??0}%`}   stopColor={rank.g1} stopOpacity={c.g1Opacity??0.68}/>
+          <stop offset={`${c.midStop??44}%`}  stopColor={c.midColor??'#0a0a0a'}/>
+          <stop offset={`${c.endStop??100}%`} stopColor={c.endColor??'#040404'}/>
+        </linearGradient>
+      </defs>
+
+      {/* Background */}
+      <path d={ticket} fill={`url(#${bgId})`}/>
+
+      {/* Band tint + bottom edge */}
+      <rect x="0" y="0" width={V2_W} height={V2_BAND_H}
+        fill={col} opacity=".08" clipPath={`url(#${clipId})`}/>
+      <line x1="0" y1={V2_BAND_H} x2={V2_W} y2={V2_BAND_H}
+        stroke={col} strokeWidth=".7" opacity=".2" clipPath={`url(#${clipId})`}/>
+
+      {/* Outer border */}
+      <path d={ticket} fill="none" stroke={col} strokeWidth="1.1" opacity=".38"/>
+
+      {/* Stub divider */}
+      <line x1="22" y1={V2_DIV_Y} x2="318" y2={V2_DIV_Y}
+        stroke={col} strokeDasharray="4,4" strokeWidth="1" opacity=".48"/>
+
+      {/* L-brackets — PAD=24px gap from edge, band, and divider */}
+      <polyline points={`${V2_BL_X},${V2_BT_Y+V2_BLEN} ${V2_BL_X},${V2_BT_Y} ${V2_BL_X+V2_BLEN},${V2_BT_Y}`}
+        fill="none" stroke={col} strokeWidth="1" opacity=".18"/>
+      <polyline points={`${V2_BR_X-V2_BLEN},${V2_BT_Y} ${V2_BR_X},${V2_BT_Y} ${V2_BR_X},${V2_BT_Y+V2_BLEN}`}
+        fill="none" stroke={col} strokeWidth="1" opacity=".18"/>
+      <polyline points={`${V2_BL_X},${V2_BB_Y-V2_BLEN} ${V2_BL_X},${V2_BB_Y} ${V2_BL_X+V2_BLEN},${V2_BB_Y}`}
+        fill="none" stroke={col} strokeWidth="1" opacity=".18"/>
+      <polyline points={`${V2_BR_X-V2_BLEN},${V2_BB_Y} ${V2_BR_X},${V2_BB_Y} ${V2_BR_X},${V2_BB_Y-V2_BLEN}`}
+        fill="none" stroke={col} strokeWidth="1" opacity=".18"/>
+
+      {/* Rank name — SIZE_2, centered in band */}
+      <text x={V2_W/2} y="33" textAnchor="middle"
+        fontFamily={fOrb} fontWeight="900" fontSize={V2_S2}
+        fill={col} letterSpacing="2"
+        style={{ filter:`drop-shadow(0 0 8px ${col}44)` }}>{rank.name}</text>
+
+      {/* Timeframe — SIZE_3, centered above PnL unit */}
+      <text x={L.tfX} y={L.tfY} textAnchor="middle"
+        fontFamily={fOrb} fontSize={V2_S3}
+        fill="rgba(255,255,255,0.62)" letterSpacing="2">{tf || 'ALL TIME'}</text>
+
+      {/* PnL unit: logo + number */}
+      <g transform={`translate(${L.hPad.toFixed(1)},${L.logoTop.toFixed(1)}) scale(${L.lScl.toFixed(4)})`}
+        fill={pnlColor} style={{ filter:`drop-shadow(0 0 12px ${pnlColor}44)` }}>
+        <path d={V2_LOGO_PATH}/>
+      </g>
+      <text ref={pnlNumRef}
+        x={L.numX.toFixed(1)} y={L.pnlBase}
+        fontFamily={fOrb} fontWeight="900" fontSize={L.fs}
+        fill={pnlColor} letterSpacing="-1.5"
+        style={{ filter:`drop-shadow(0 0 18px ${pnlColor}33)` }}>
+        {displayStr}
+      </text>
+
+      {/* RETURN label + value */}
+      <text x={V2_W/2} y={L.retLblY} textAnchor="middle"
+        fontFamily={fOrb} fontSize={V2_S3}
+        fill="rgba(255,255,255,0.62)" letterSpacing="1">RETURN</text>
+      <text x={V2_W/2} y={L.retValY} textAnchor="middle"
+        fontFamily={fOrb} fontWeight="700" fontSize={V2_S2}
+        fill={pnlColor} opacity=".88">{retStr}</text>
+
+      {/* Nickname — SIZE_3, centered, above bottom bracket arms */}
+      <text x={V2_W/2} y={V2_BB_Y-8} textAnchor="middle"
+        fontFamily={fOrb} fontSize={V2_S3}
+        fill="rgba(255,255,255,0.52)">{walletLabel}</text>
+
+      {/* ── STUB ── */}
+      {showChart ? (
+        <>
+          {cv && (
+            <svg x={STUB_X} y={STUB_Y} width={CURVE_W} height={CURVE_H} overflow="visible">
+              <polyline points={cv.pts} fill="none" stroke={pnlColor}
+                strokeWidth="1.8" strokeLinejoin="round" strokeLinecap="round"/>
+              <circle cx={cv.lastX} cy={cv.lastY} r="3" fill={pnlColor}
+                style={{ filter:`drop-shadow(0 0 5px ${pnlColor})` }}/>
+            </svg>
+          )}
+          {/* Vol right col — SIZE_3 labels + SIZE_3 logo+nums */}
+          <text x={WG_X} y={WG_L1} fontFamily={fOrb} fontSize={V2_S3}
+            fill="rgba(255,255,255,0.52)">BOUGHT</text>
+          <g transform={`translate(${WG_X},${WG_N1-vlH3}) scale(${vlS3.toFixed(4)})`}
+            fill="rgba(255,255,255,0.40)"><path d={V2_LOGO_PATH}/></g>
+          <text x={WG_NX} y={WG_N1} fontFamily={fOrb} fontSize={V2_S3}
+            fill="rgba(255,255,255,0.72)">{fmtC(totalSolIn, S, 1).replace(' SOL','')}</text>
+          <text x={WG_X} y={WG_L2} fontFamily={fOrb} fontSize={V2_S3}
+            fill={col} opacity=".55">SOLD</text>
+          <g transform={`translate(${WG_X},${WG_N2-vlH3}) scale(${vlS3.toFixed(4)})`}
+            fill={col} opacity=".68"><path d={V2_LOGO_PATH}/></g>
+          <text x={WG_NX} y={WG_N2} fontFamily={fOrb} fontSize={V2_S3}
+            fill={col}>{fmtC(totalSolOut, S, 1).replace(' SOL','')}</text>
+        </>
+      ) : (
+        <>
+          {/* Vol two-column — SIZE_3 labels + SIZE_2 logo+nums, side by side */}
+          <text x={NG_LXA} y={NG_LBL_Y} fontFamily={fOrb} fontSize={V2_S3}
+            fill="rgba(255,255,255,0.52)">BOUGHT</text>
+          <g transform={`translate(${NG_LXA},${NG_LOGO_T}) scale(${vlS2.toFixed(4)})`}
+            fill="rgba(255,255,255,0.40)"><path d={V2_LOGO_PATH}/></g>
+          <text x={NG_NXA} y={NG_NUM_Y} fontFamily={fOrb} fontWeight="700" fontSize={V2_S2}
+            fill="rgba(255,255,255,0.80)">{fmtC(totalSolIn, S, 2).replace(' SOL','')}</text>
+          <text x={NG_LXB} y={NG_LBL_Y} fontFamily={fOrb} fontSize={V2_S3}
+            fill={col} opacity=".60">SOLD</text>
+          <g transform={`translate(${NG_LXB},${NG_LOGO_T}) scale(${vlS2.toFixed(4)})`}
+            fill={col} opacity=".78"><path d={V2_LOGO_PATH}/></g>
+          <text x={NG_NXB} y={NG_NUM_Y} fontFamily={fOrb} fontWeight="700" fontSize={V2_S2}
+            fill={col}>{fmtC(totalSolOut, S, 2).replace(' SOL','')}</text>
+        </>
+      )}
+
+      {/* Watermark */}
+      <text x={V2_W/2} y={V2_H-8} textAnchor="middle"
+        fontFamily={fOrb} fontSize="5"
+        fill="rgba(255,255,255,0.06)" letterSpacing="2">{S.appName ?? 'SOLTRACK'}</text>
+    </svg>
+  );
+}
+
 // Share modal — preview only, card appearance configured per-rank in admin
 function ShareModal({ S, setSetting, pnlCurve, closed, totalPnl, winRate, tf, walletLabel, onClose }) {
   const ranks = S.pnlRanks ?? PNL_RANKS;
@@ -4575,6 +4910,7 @@ function ShareModal({ S, setSetting, pnlCurve, closed, totalPnl, winRate, tf, wa
   const [customLabel, setCustomLabel] = useState(""); // "" = use default walletLabel
   const [cardTextScale, setCardTextScale] = useState(1.0); // 0.5–1.5 multiplier for minor text
   const [cardPnlCompact, setCardPnlCompact] = useState(false); // show 1.2k instead of 1247.3
+  const [useV2Design, setUseV2Design] = useState(S.cardDesignV2 ?? false);
   // Build a merged rank with the user's session overrides applied
   const baseCard = { ...DEFAULT_CARD, ...(rank.card ?? {}) };
   const previewRank = { ...rank, card: {
@@ -4743,18 +5079,24 @@ function ShareModal({ S, setSetting, pnlCurve, closed, totalPnl, winRate, tf, wa
         <div style={{ background:'#050505', padding:'32px 28px',
           display:'flex', alignItems:'center', justifyContent:'center' }}>
           <div ref={captureRef} style={{ display:'block', lineHeight:0 }}>
-            <ShareCardInner S={S} pnlCurve={pnlCurve} closed={closed}
-              totalPnl={totalPnl} winRate={winRate} tf={tf}
-              walletLabel={customLabel.trim() || walletLabel}
-              cardPnlCompact={cardPnlCompact}
-              _overrideRank={previewRank}/>
+            {useV2Design
+              ? <ShareCardInnerV2 S={S} pnlCurve={pnlCurve} closed={closed}
+                  totalPnl={totalPnl} winRate={winRate} tf={tf}
+                  walletLabel={customLabel.trim() || walletLabel}
+                  cardPnlCompact={cardPnlCompact}
+                  _overrideRank={previewRank}/>
+              : <ShareCardInner S={S} pnlCurve={pnlCurve} closed={closed}
+                  totalPnl={totalPnl} winRate={winRate} tf={tf}
+                  walletLabel={customLabel.trim() || walletLabel}
+                  cardPnlCompact={cardPnlCompact}
+                  _overrideRank={previewRank}/>}
           </div>
         </div>
 
         {/* Settings panel */}
         <div style={{ borderTop:'1px solid #1a1a1a', padding:'14px 18px', display:'flex', flexDirection:'column', gap:14 }}>
 
-          {/* Row 1: label + notch */}
+          {/* Row 1: label + design toggle + notch */}
           <div style={{ display:'flex', gap:16, alignItems:'flex-start' }}>
             {/* Wallet label */}
             <div style={{ flex:1 }}>
@@ -4770,6 +5112,27 @@ function ShareModal({ S, setSetting, pnlCurve, closed, totalPnl, winRate, tf, wa
                     style={{ background:'none', border:'1px solid #222', color:'#555',
                       cursor:'pointer', fontSize:10, padding:'4px 7px', lineHeight:1 }}>×</button>
                 )}
+              </div>
+            </div>
+
+            {/* Design version toggle */}
+            <div style={{ flexShrink:0 }}>
+              <div style={{ ...mono, fontSize:7, color:'#444', letterSpacing:'.12em', marginBottom:5 }}>DESIGN</div>
+              <div style={{ display:'flex', gap:4 }}>
+                {[{ id:false, label:'CLASSIC' }, { id:true, label:'NEW' }].map(opt => {
+                  const active = useV2Design === opt.id;
+                  return (
+                    <button key={String(opt.id)}
+                      onClick={() => { setUseV2Design(opt.id); setSetting('cardDesignV2', opt.id); }}
+                      style={{ ...mono, fontSize:8, padding:'5px 10px',
+                        background: active ? accentColor+'1a' : '#111',
+                        border:`1px solid ${active ? accentColor : '#222'}`,
+                        color: active ? accentColor : '#555',
+                        cursor:'pointer', letterSpacing:'.08em', transition:'all .12s' }}>
+                      {opt.label}
+                    </button>
+                  );
+                })}
               </div>
             </div>
 
