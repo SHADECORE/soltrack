@@ -3785,8 +3785,189 @@ function AdminPanel({ S, setSetting }) {
             (b.min===-Infinity)?-1:(a.min===-Infinity)?1:b.min-a.min);
           const selIdx   = Math.min(selectedRankIdx, sortedRanks.length - 1);
           const previewR = sortedRanks[selIdx] ?? sortedRanks[0];
-          if (!previewR) return <div style={{ ...mono, color:dim, fontSize:10 }}>No ranks defined.</div>;
+          if (!previewR) return (
+            <div style={{ ...mono, color:dim, fontSize:10 }}>
+              No ranks defined.
+              <button onClick={addRank} style={{ ...mono, marginLeft:12, background:'none',
+                border:`1px solid ${green}55`, color:green, cursor:'pointer', padding:'3px 10px', fontSize:9 }}>
+                + ADD FIRST RANK
+              </button>
+            </div>
+          );
           const origIdx  = ranks.findIndex(x => x===previewR || (x.name===previewR.name && x.min===previewR.min));
+          const c        = { ...DEFAULT_CARD, ...(previewR.card ?? {}) };
+          const updateCard = (k, v) => updateRank(origIdx, 'card', { ...c, [k]: v });
+
+          // ── UI helpers (defined inside IIFE — no hooks) ──────────────
+          const V2Sec = ({ title }) => (
+            <div style={{ ...mono, fontSize:8, color:green, letterSpacing:'.14em',
+              borderBottom:`1px solid ${green}22`, paddingBottom:4, marginTop:14, marginBottom:8 }}>
+              {title}</div>
+          );
+          const V2Row = ({ label, children }) => (
+            <div style={{ display:'flex', alignItems:'center', gap:8, marginBottom:6 }}>
+              <span style={{ ...mono, fontSize:8, color:dim, minWidth:130, flexShrink:0 }}>{label}</span>
+              {children}
+            </div>
+          );
+          const V2Slider = ({ label, k, min, max, step=1, unit='' }) => {
+            const val = c[k] ?? DEFAULT_CARD[k] ?? min;
+            return (
+              <V2Row label={label}>
+                <input type="range" min={min} max={max} step={step}
+                  value={Math.min(max,Math.max(min,+val||0))}
+                  onChange={e => updateCard(k, +e.target.value)}
+                  style={{ flex:1, accentColor:green, minWidth:0 }}/>
+                <input type="number" step={step} value={val}
+                  onChange={e => { const v=parseFloat(e.target.value); if(!isNaN(v)) updateCard(k,v); }}
+                  style={{ ...mono, background:'#111', border:`1px solid ${border}`,
+                    color:'#ccc', fontSize:9, width:52, padding:'2px 4px', textAlign:'right', flexShrink:0 }}/>
+                {unit && <span style={{ ...mono, fontSize:8, color:'#444', flexShrink:0 }}>{unit}</span>}
+              </V2Row>
+            );
+          };
+          const V2Toggle = ({ label, k }) => (
+            <V2Row label={label}>
+              <label style={{ cursor:'pointer', display:'flex', alignItems:'center', gap:6 }}>
+                <input type="checkbox" checked={!!(c[k] ?? DEFAULT_CARD[k])}
+                  onChange={e => updateCard(k, e.target.checked)}
+                  style={{ accentColor:green, cursor:'pointer' }}/>
+                <span style={{ ...mono, fontSize:9, color:(c[k]??DEFAULT_CARD[k]) ? green : dim }}>
+                  {(c[k]??DEFAULT_CARD[k]) ? 'ON' : 'OFF'}
+                </span>
+              </label>
+            </V2Row>
+          );
+          const V2Color = ({ label, k }) => {
+            const val = c[k] ?? DEFAULT_CARD[k] ?? '#000000';
+            const toHex = v => v?.match(/^#[0-9a-fA-F]{6}$/i) ? v : '#000000';
+            return (
+              <V2Row label={label}>
+                <div style={{ position:'relative', width:22, height:22, flexShrink:0 }}>
+                  <div style={{ position:'absolute', inset:0, background:val, border:`1px solid ${border}`, borderRadius:2 }}/>
+                  <input type="color" value={toHex(val)} onChange={e => updateCard(k, e.target.value)}
+                    style={{ position:'absolute', inset:0, opacity:0, width:'100%', height:'100%', cursor:'pointer' }}/>
+                </div>
+                <input type="text" key={val} defaultValue={val}
+                  onBlur={e => updateCard(k, e.target.value.trim())}
+                  onKeyDown={e => { if(e.key==='Enter') updateCard(k, e.target.value.trim()); }}
+                  style={{ ...mono, background:'#111', border:`1px solid ${border}`,
+                    color:'#ddd', fontSize:9, flex:1, padding:'3px 6px' }}/>
+              </V2Row>
+            );
+          };
+          // Inline color picker for rank-level fields (not card subobj)
+          const RankColor = ({ label, field }) => {
+            const val = previewR[field] ?? '#000000';
+            const toHex = v => v?.match(/^#[0-9a-fA-F]{6}$/i) ? v : '#000000';
+            return (
+              <V2Row label={label}>
+                <div style={{ position:'relative', width:22, height:22, flexShrink:0 }}>
+                  <div style={{ position:'absolute', inset:0, background:val, border:`1px solid ${border}`, borderRadius:2 }}/>
+                  <input type="color" value={toHex(val)} onChange={e => updateRank(origIdx, field, e.target.value)}
+                    style={{ position:'absolute', inset:0, opacity:0, width:'100%', height:'100%', cursor:'pointer' }}/>
+                </div>
+                <input type="text" key={val} defaultValue={val}
+                  onBlur={e => updateRank(origIdx, field, e.target.value.trim())}
+                  onKeyDown={e => { if(e.key==='Enter') updateRank(origIdx, field, e.target.value.trim()); }}
+                  style={{ ...mono, background:'#111', border:`1px solid ${border}`,
+                    color:'#ddd', fontSize:9, flex:1, padding:'3px 6px' }}/>
+              </V2Row>
+            );
+          };
+
+          return (
+            <div style={{ display:'flex', gap:0, alignItems:'flex-start', minHeight:600 }}>
+
+              {/* LEFT: rank picker + settings */}
+              <div style={{ width:380, flexShrink:0, borderRight:`1px solid ${border}`, paddingRight:20,
+                overflowY:'auto', maxHeight:'calc(100vh - 100px)' }}>
+
+                {/* Toolbar: selector + add/delete/save */}
+                <div style={{ display:'flex', alignItems:'center', gap:6, marginBottom:14 }}>
+                  <div style={{ flex:1, position:'relative' }}>
+                    <select value={selIdx} onChange={e => setSelectedRankIdx(+e.target.value)}
+                      style={{ ...mono, background:'#111', border:`1px solid ${border}`, color:'#fff',
+                        padding:'5px 28px 5px 10px', fontSize:10, width:'100%', cursor:'pointer',
+                        appearance:'none', WebkitAppearance:'none' }}>
+                      {sortedRanks.map((r,i) => (
+                        <option key={i} value={i}>{r.name}{r.min===-Infinity?' (< 0)':`(≥ ${r.min})`}</option>
+                      ))}
+                    </select>
+                    <div style={{ position:'absolute', right:8, top:'50%', transform:'translateY(-50%)',
+                      color:dim, pointerEvents:'none', fontSize:9 }}>▾</div>
+                  </div>
+                  <button onClick={addRank}
+                    style={{ ...mono, background:'none', border:`1px solid ${green}55`, color:green,
+                      cursor:'pointer', padding:'5px 8px', fontSize:9, whiteSpace:'nowrap' }}>+ NEW</button>
+                  <button onClick={() => removeRank(origIdx)}
+                    style={{ ...mono, background:'none', border:'1px solid #ff003355', color:'#ff4444',
+                      cursor:'pointer', padding:'5px 8px', fontSize:9 }}>× DEL</button>
+                  <button onClick={saveRanks}
+                    style={{ ...mono, background:green+'22', border:`1px solid ${green}`, color:green,
+                      cursor:'pointer', padding:'5px 10px', fontSize:9, whiteSpace:'nowrap' }}>SAVE</button>
+                </div>
+
+                {/* ── IDENTITY ── */}
+                <V2Sec title="IDENTITY"/>
+                <V2Row label="Name">
+                  <input value={previewR.name} onClick={e => e.stopPropagation()}
+                    onChange={e => updateRank(origIdx,'name',e.target.value.toUpperCase())}
+                    style={{ ...mono, background:'#111', border:`1px solid ${border}`, color:'#fff',
+                      padding:'3px 7px', fontSize:10, fontWeight:700, flex:1 }}/>
+                </V2Row>
+                <V2Row label="Min SOL threshold">
+                  <input type="number" value={previewR.min===-Infinity?'':previewR.min}
+                    placeholder="-∞ (REKT)" disabled={previewR.min===-Infinity}
+                    onChange={e => updateRank(origIdx,'min',parseFloat(e.target.value)||0)}
+                    style={{ ...mono, background:'#111', border:`1px solid ${border}`, color:dim,
+                      padding:'3px 5px', fontSize:10, flex:1, opacity:previewR.min===-Infinity?0.4:1 }}/>
+                </V2Row>
+                <RankColor label="Accent color" field="color"/>
+                <RankColor label="Gradient top (G1)" field="g1"/>
+                <RankColor label="Gradient bottom (G2)" field="g2"/>
+
+                {/* ── ACCENT OVERRIDE ── */}
+                <V2Sec title="ACCENT OVERRIDE"/>
+                <V2Toggle label="Use rank color" k="useRankColor"/>
+                {!(c.useRankColor ?? DEFAULT_CARD.useRankColor) && (
+                  <V2Color label="Custom color" k="customColor"/>
+                )}
+
+                {/* ── GRADIENT ── */}
+                <V2Sec title="GRADIENT"/>
+                <V2Slider label="Angle (°)"    k="gradientAngle"  min={0}   max={360} step={5}   unit="°"/>
+                <V2Slider label="G1 opacity"   k="g1Opacity"      min={0}   max={1}   step={0.05}/>
+                <V2Slider label="G1 stop (%)"  k="g1Stop"         min={0}   max={60}  step={1}   unit="%"/>
+                <V2Slider label="Mid stop (%)" k="midStop"        min={10}  max={90}  step={1}   unit="%"/>
+                <V2Color  label="Mid color"    k="midColor"/>
+                <V2Slider label="End stop (%)" k="endStop"        min={50}  max={100} step={1}   unit="%"/>
+                <V2Color  label="End color"    k="endColor"/>
+
+                {/* ── DISPLAY ── */}
+                <V2Sec title="DISPLAY"/>
+                <V2Toggle label="Show PnL chart" k="showChart"/>
+
+                <div style={{ height:20 }}/>
+              </div>
+
+              {/* RIGHT: V2 live preview */}
+              <div style={{ flex:1, display:'flex', flexDirection:'column', alignItems:'center',
+                paddingLeft:28, paddingTop:4, gap:14, position:'sticky', top:0 }}>
+                <div style={{ ...mono, fontSize:8, color:dim, letterSpacing:'.12em' }}>LIVE PREVIEW · NEW DESIGN</div>
+                <div style={{ transform:'scale(0.82)', transformOrigin:'top center', marginBottom:-80 }}>
+                  <ShareCardInnerV2 S={S} pnlCurve={[]} closed={[]}
+                    totalPnl={previewR.min === -Infinity ? -1.5 : (previewR.min ?? 0) + 0.5}
+                    winRate="58.0" tf="ALL" walletLabel={previewR.name} _overrideRank={previewR}/>
+                </div>
+                <div style={{ ...mono, fontSize:8, color:dim, letterSpacing:'.08em', textAlign:'center', marginTop:4 }}>
+                  · Changes saved with <span style={{ color:'#fff' }}>SAVE</span> button ·<br/>
+                  · Border, divider, text sizes → Card V2 tab ·
+                </div>
+              </div>
+            </div>
+          );
+        })()}
           const c        = { ...DEFAULT_CARD, ...(previewR.card ?? {}) };
           const updateCard = (k, v) => updateRank(origIdx, 'card', { ...c, [k]: v });
 
@@ -3898,51 +4079,8 @@ function AdminPanel({ S, setSetting }) {
                 <V2Slider label="End stop (%)"  k="endStop"        min={50}  max={100} step={1}    unit="%"/>
                 <V2Color  label="End color"     k="endColor"/>
 
-                <V2Section title="BORDER"/>
-                <V2Slider label="Width (px)"    k="borderWidth"    min={0}   max={8}   step={0.5}  unit="px"/>
-                <V2Slider label="Opacity"       k="borderOpacity"  min={0}   max={1}   step={0.05}/>
-
-                <V2Section title="TICKET DIVIDER"/>
-                <V2Slider label="Thickness"     k="dividerWidth"   min={0}   max={6}   step={0.5}  unit="px"/>
-                <V2Slider label="Opacity"       k="dividerOpacity" min={0}   max={1}   step={0.05}/>
-                <V2Row label="Dash pattern">
-                  <input value={c.dividerDash ?? DEFAULT_CARD.dividerDash}
-                    onChange={e => updateCard('dividerDash', e.target.value)}
-                    placeholder="4,4"
-                    style={{ ...mono, background:'#111', border:`1px solid ${border}`, color:'#fff',
-                      padding:'3px 7px', fontSize:9, flex:1 }}/>
-                  <span style={{ ...mono, fontSize:7, color:dim }}>e.g. 4,4 · 8,2</span>
-                </V2Row>
-
                 <V2Section title="DISPLAY"/>
                 <V2Toggle label="Show PnL chart" k="showChart"/>
-
-                <V2Section title="BACKGROUND IMAGE"/>
-                <V2Row label={c.bgImage ? 'Image set ✓' : 'No image'}>
-                  <label style={{ ...mono, fontSize:8, color:dim, cursor:'pointer',
-                    border:`1px dashed ${border}`, padding:'3px 8px', flex:1, textAlign:'center' }}>
-                    {c.bgImage ? '↑ REPLACE' : '↑ UPLOAD IMAGE'}
-                    <input type="file" accept="image/*" style={{ display:'none' }}
-                      onChange={e => {
-                        const file = e.target.files?.[0]; if (!file) return;
-                        if (file.size > 2*1024*1024) { alert('Max 2 MB'); return; }
-                        const reader = new FileReader();
-                        reader.onload = ev => updateCard('bgImage', ev.target.result);
-                        reader.readAsDataURL(file);
-                        e.target.value = '';
-                      }}/>
-                  </label>
-                  {c.bgImage && (
-                    <button onClick={() => updateCard('bgImage', null)}
-                      style={{ ...mono, fontSize:8, color:'#ff4444', background:'none',
-                        border:'1px solid #ff003333', cursor:'pointer', padding:'3px 7px' }}>✕ CLEAR</button>
-                  )}
-                </V2Row>
-                {c.bgImage && (
-                  <div style={{ ...mono, fontSize:8, color:dim, marginTop:4, lineHeight:1.6 }}>
-                    Gradient overlays image. Stub area fades to black automatically.
-                  </div>
-                )}
 
                 <div style={{ height:20 }}/>
               </div>
@@ -3974,40 +4112,67 @@ function AdminPanel({ S, setSetting }) {
         {/* ── CARD V2 TAB ── */}
         {adminTab === "card_v2" && (() => {
           const dc    = S.defaultCardV2 ?? {};
+          // setDC merges a single key into S.defaultCardV2
           const setDC = (k, v) => setSetting("defaultCardV2", { ...dc, [k]: v });
           const resetDC = k => { const nd={...dc}; delete nd[k]; setSetting("defaultCardV2", nd); };
+          // Read with fallback to DEFAULT_CARD_V2 built-ins
+          const gcv = k => dc[k] ?? DEFAULT_CARD_V2[k];
 
-          const V2Section = ({ title }) => (
+          const V2Sec = ({ title }) => (
             <div style={{ ...mono, fontSize:8, color:green, letterSpacing:".14em",
               borderBottom:`1px solid ${green}22`, paddingBottom:4, marginTop:14, marginBottom:8 }}>
               {title}</div>
           );
-          const V2Num = ({ k, label, min, max, step=1, unit="" }) => {
-            const val = dc[k] ?? DEFAULT_CARD[k] ?? min;
+          // Number slider + text input + reset
+          const N = ({ k, label, min, max, step=1, unit="" }) => {
+            const val = gcv(k) ?? min;
             return (
               <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:8 }}>
                 <label style={{ ...mono, fontSize:9, color:dim, width:200, flexShrink:0 }}>{label}</label>
-                <input type="range" min={min} max={max} step={step} value={Math.min(max,Math.max(min,val))}
+                <input type="range" min={min} max={max} step={step}
+                  value={Math.min(max,Math.max(min,+val||0))}
                   onChange={e => setDC(k, +e.target.value)}
                   style={{ flex:1, accentColor:green }}/>
-                <span style={{ ...mono, fontSize:9, color:green, width:48, textAlign:"right" }}>{val}{unit}</span>
-                <button onClick={() => resetDC(k)} title="Reset"
+                <span style={{ ...mono, fontSize:9, color:green, width:52, textAlign:"right", flexShrink:0 }}>
+                  {val}{unit}
+                </span>
+                <button onClick={() => resetDC(k)} title="Reset to default"
                   style={{ background:"none", border:`1px solid ${border}`, color:dim,
                     cursor:"pointer", fontSize:8, padding:"2px 6px", ...mono, flexShrink:0 }}>↺</button>
               </div>
             );
           };
-          const V2Col = ({ k, label }) => {
-            const val = dc[k] ?? DEFAULT_CARD[k] ?? '#000000';
-            const toHex = v => v?.match(/^#[0-9a-fA-F]{6}$/i) ? v : '#000000';
+          // Text input + reset (for dash pattern etc.)
+          const T = ({ k, label, placeholder="" }) => (
+            <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:8 }}>
+              <label style={{ ...mono, fontSize:9, color:dim, width:200, flexShrink:0 }}>{label}</label>
+              <input type="text" value={gcv(k) ?? ''} placeholder={placeholder}
+                onChange={e => setDC(k, e.target.value)}
+                style={{ flex:1, background:"#0a0a0a", border:`1px solid ${border}`, color:"#fff",
+                  ...mono, fontSize:9, padding:"3px 6px" }}/>
+              <button onClick={() => resetDC(k)} title="Reset"
+                style={{ background:"none", border:`1px solid ${border}`, color:dim,
+                  cursor:"pointer", fontSize:8, padding:"2px 6px", ...mono, flexShrink:0 }}>↺</button>
+            </div>
+          );
+          // Segmented alignment selector
+          const AlignPicker = ({ k, label, opts }) => {
+            const cur = gcv(k);
             return (
               <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:8 }}>
                 <label style={{ ...mono, fontSize:9, color:dim, width:200, flexShrink:0 }}>{label}</label>
-                <input type="color" value={toHex(val)} onChange={e => setDC(k, e.target.value)}
-                  style={{ width:32, height:24, border:"none", background:"none", cursor:"pointer" }}/>
-                <input type="text" value={val} onChange={e => setDC(k, e.target.value)}
-                  style={{ flex:1, background:"#0a0a0a", border:`1px solid ${border}`, color:"#fff",
-                    ...mono, fontSize:9, padding:"3px 6px" }}/>
+                <div style={{ display:"flex", gap:4 }}>
+                  {opts.map(opt => (
+                    <button key={opt.v} onClick={() => setDC(k, opt.v)}
+                      style={{ ...mono, fontSize:8, padding:"3px 10px",
+                        background: cur===opt.v ? green+'22' : '#111',
+                        border:`1px solid ${cur===opt.v ? green : border}`,
+                        color: cur===opt.v ? green : dim,
+                        cursor:'pointer', letterSpacing:'.06em', transition:'all .1s' }}>
+                      {opt.label}
+                    </button>
+                  ))}
+                </div>
                 <button onClick={() => resetDC(k)} title="Reset"
                   style={{ background:"none", border:`1px solid ${border}`, color:dim,
                     cursor:"pointer", fontSize:8, padding:"2px 6px", ...mono, flexShrink:0 }}>↺</button>
@@ -4016,76 +4181,100 @@ function AdminPanel({ S, setSetting }) {
           };
 
           const previewPnl = dc.previewPnl ?? 1.234;
-          const sampleCurve = [{cumPnl:0},{cumPnl:-0.3},{cumPnl:0.2},{cumPnl:0.8},{cumPnl:previewPnl}];
+          const sampleCurve  = [{cumPnl:0},{cumPnl:-0.3},{cumPnl:0.2},{cumPnl:0.8},{cumPnl:previewPnl}];
           const sampleClosed = [{ solIn:0.5, solOut:0.5+previewPnl }];
 
           return (
-            <div style={{ padding:"4px 0" }}>
-              <div style={{ ...mono, fontSize:9, color:dim, marginBottom:12, lineHeight:1.7 }}>
-                Global defaults for the new V2 card design. Per-rank overrides (Ranks V2 tab) take priority.
-                Click ↺ to reset any field to its built-in default.
+            <div style={{ display:"flex", gap:32, alignItems:"flex-start" }}>
+
+              {/* LEFT: settings */}
+              <div style={{ flex:1, minWidth:520, overflowY:'auto', maxHeight:'calc(100vh - 100px)' }}>
+                <div style={{ ...mono, fontSize:9, color:dim, marginBottom:12, lineHeight:1.7 }}>
+                  Global layout/style for the new V2 card. These apply to all ranks.
+                  Per-rank gradient/color overrides live in the Ranks V2 tab.
+                  Click ↺ to reset to built-in default.
+                </div>
+
+                <V2Sec title="TEXT SIZES"/>
+                {N({ k:"v2S1Max",  label:"PnL max font size",     min:36, max:90,  step:1,   unit:"px" })}
+                {N({ k:"v2S2",     label:"Rank name / Return %",  min:12, max:36,  step:1,   unit:"px" })}
+                {N({ k:"v2S3",     label:"All other text",        min:8,  max:20,  step:1,   unit:"px" })}
+
+                <V2Sec title="TEXT ALIGNMENT (ADMIN DEFAULT)"/>
+                {AlignPicker({ k:"v2TextAlign", label:"Default alignment",
+                  opts:[{v:'left',label:'◂ LEFT'},{v:'center',label:'● CENTER'},{v:'right',label:'RIGHT ▸'}] })}
+                <div style={{ ...mono, fontSize:8, color:dim, marginBottom:8, lineHeight:1.6 }}>
+                  Users can override this per-share in the share modal.
+                </div>
+
+                <V2Sec title="BORDER"/>
+                {N({ k:"v2BorderWidth",   label:"Width",   min:0, max:8,  step:0.1, unit:"px" })}
+                {N({ k:"v2BorderOpacity", label:"Opacity", min:0, max:1,  step:0.02         })}
+
+                <V2Sec title="TICKET DIVIDER"/>
+                {N({ k:"v2DividerWidth",   label:"Thickness", min:0, max:6,  step:0.25, unit:"px" })}
+                {N({ k:"v2DividerOpacity", label:"Opacity",   min:0, max:1,  step:0.02         })}
+                {T({ k:"v2DividerDash", label:"Dash pattern", placeholder:"4,4" })}
+
+                <V2Sec title="L-BRACKETS"/>
+                {N({ k:"v2BracketLen",     label:"Arm length",  min:4,  max:40,  step:1,  unit:"px" })}
+                {N({ k:"v2BracketOpacity", label:"Opacity",     min:0,  max:0.6, step:0.02         })}
+
+                <V2Sec title="PnL BLOCK VERTICAL POSITION"/>
+                {N({ k:"v2PnlYOffset",      label:"Y offset from center",  min:-80, max:80,  step:1, unit:"px" })}
+                {N({ k:"v2ReturnLabelGap",  label:"Gap PnL→RETURN label",  min:4,   max:40,  step:1, unit:"px" })}
+                {N({ k:"v2ReturnValGap",    label:"Gap label→return value", min:2,   max:20,  step:1, unit:"px" })}
+                {N({ k:"v2TfGap",           label:"Gap timeframe→logo",     min:4,   max:30,  step:1, unit:"px" })}
+                {N({ k:"v2NicknameYOff",    label:"Nickname offset from bracket", min:-30, max:10, step:1, unit:"px" })}
+
+                <V2Sec title="VOLUME POSITIONS"/>
+                {N({ k:"v2VolGraphX",  label:"Vol col X (with chart)",    min:180, max:300, step:2, unit:"px" })}
+                {N({ k:"v2VolNgColA",  label:"BOUGHT col X (no chart)",   min:10,  max:160, step:2, unit:"px" })}
+                {N({ k:"v2VolNgColB",  label:"SOLD col X (no chart)",     min:120, max:260, step:2, unit:"px" })}
+
+                <V2Sec title="DISPLAY"/>
+                <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:8 }}>
+                  <label style={{ ...mono, fontSize:9, color:dim, width:200, flexShrink:0 }}>Show PnL chart (default)</label>
+                  <label style={{ cursor:'pointer', display:'flex', alignItems:'center', gap:6 }}>
+                    <input type="checkbox"
+                      checked={dc.showChart ?? DEFAULT_CARD.showChart ?? true}
+                      onChange={e => setDC('showChart', e.target.checked)}
+                      style={{ accentColor:green, cursor:'pointer' }}/>
+                    <span style={{ ...mono, fontSize:9,
+                      color:(dc.showChart??DEFAULT_CARD.showChart??true)?green:dim }}>
+                      {(dc.showChart??DEFAULT_CARD.showChart??true)?'ON':'OFF'}
+                    </span>
+                  </label>
+                  <button onClick={() => resetDC('showChart')} title="Reset"
+                    style={{ background:"none", border:`1px solid ${border}`, color:dim,
+                      cursor:"pointer", fontSize:8, padding:"2px 6px", ...mono }}>↺</button>
+                </div>
+
+                <div style={{ height:20 }}/>
               </div>
 
-              {/* Live preview */}
-              <div style={{ marginBottom:16, display:"flex", gap:12, flexWrap:"wrap" }}>
-                <div style={{ ...mono, fontSize:8, color:green, letterSpacing:".14em", width:'100%' }}>LIVE PREVIEW · NEW DESIGN</div>
-                <div style={{ transform:"scale(0.72)", transformOrigin:"top left", flexShrink:0, height:354 }}>
+              {/* RIGHT: live preview + PnL value input */}
+              <div style={{ flexShrink:0, display:"flex", flexDirection:"column", gap:10, position:'sticky', top:0 }}>
+                <div style={{ ...mono, fontSize:8, color:green, letterSpacing:".14em" }}>LIVE PREVIEW</div>
+                <div style={{ transform:"scale(0.72)", transformOrigin:"top left", height:354, width:245 }}>
                   <ShareCardInnerV2
                     S={{ ...S, defaultCardV2: dc }}
                     pnlCurve={sampleCurve} closed={sampleClosed}
                     totalPnl={previewPnl} winRate="66.67" tf="ALL"
-                    walletLabel="PREVIEW WALLET"/>
+                    walletLabel="PREVIEW"/>
                 </div>
-                <div style={{ flex:1, minWidth:160 }}>
-                  <div style={{ ...mono, fontSize:8, color:dim, marginBottom:8 }}>PREVIEW PnL VALUE</div>
-                  <input type="number" step="0.001" value={previewPnl}
-                    onChange={e => setDC("previewPnl", +e.target.value)}
-                    style={{ width:"100%", background:"#0a0a0a", border:`1px solid ${border}`,
-                      color:"#fff", ...mono, fontSize:11, padding:"5px 8px", boxSizing:"border-box" }}/>
-                  <div style={{ ...mono, fontSize:8, color:dim, marginTop:6, lineHeight:1.6, opacity:0.6 }}>
-                    Change to test different PnL magnitudes.
-                  </div>
+                <div style={{ ...mono, fontSize:8, color:dim, marginBottom:4 }}>PREVIEW PnL VALUE</div>
+                <input type="number" step="0.001" value={previewPnl}
+                  onChange={e => setDC("previewPnl", +e.target.value)}
+                  style={{ width:180, background:"#0a0a0a", border:`1px solid ${border}`,
+                    color:"#fff", ...mono, fontSize:11, padding:"5px 8px", boxSizing:"border-box" }}/>
+                <div style={{ ...mono, fontSize:8, color:dim, lineHeight:1.6, opacity:0.6, maxWidth:180 }}>
+                  Change to preview different PnL magnitudes and see font-size scaling.
                 </div>
-              </div>
-
-              <V2Section title="GRADIENT"/>
-              {V2Num({ k:"gradientAngle",  label:"Angle",        min:0,   max:360, step:5,    unit:"°" })}
-              {V2Num({ k:"g1Opacity",      label:"G1 opacity",   min:0,   max:1,   step:0.05         })}
-              {V2Num({ k:"g1Stop",         label:"G1 stop",      min:0,   max:60,  step:1,    unit:"%" })}
-              {V2Num({ k:"midStop",        label:"Mid stop",     min:10,  max:90,  step:1,    unit:"%" })}
-              {V2Col({ k:"midColor",       label:"Mid color"   })}
-              {V2Num({ k:"endStop",        label:"End stop",     min:50,  max:100, step:1,    unit:"%" })}
-              {V2Col({ k:"endColor",       label:"End color"   })}
-
-              <V2Section title="BORDER"/>
-              {V2Num({ k:"borderWidth",    label:"Width",        min:0,   max:8,   step:0.5,  unit:"px" })}
-              {V2Num({ k:"borderOpacity",  label:"Opacity",      min:0,   max:1,   step:0.05         })}
-
-              <V2Section title="TICKET DIVIDER"/>
-              {V2Num({ k:"dividerWidth",   label:"Thickness",    min:0,   max:6,   step:0.5,  unit:"px" })}
-              {V2Num({ k:"dividerOpacity", label:"Opacity",      min:0,   max:1,   step:0.05         })}
-              <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:8 }}>
-                <label style={{ ...mono, fontSize:9, color:dim, width:200, flexShrink:0 }}>Dash pattern</label>
-                <input type="text" value={dc.dividerDash ?? DEFAULT_CARD.dividerDash}
-                  onChange={e => setDC("dividerDash", e.target.value)} placeholder="4,4"
-                  style={{ flex:1, background:"#0a0a0a", border:`1px solid ${border}`, color:"#fff",
-                    ...mono, fontSize:9, padding:"3px 6px" }}/>
-              </div>
-
-              <V2Section title="DISPLAY"/>
-              <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:8 }}>
-                <label style={{ ...mono, fontSize:9, color:dim, width:200, flexShrink:0 }}>Show PnL chart</label>
-                <label style={{ cursor:'pointer', display:'flex', alignItems:'center', gap:6 }}>
-                  <input type="checkbox" checked={dc.showChart ?? DEFAULT_CARD.showChart}
-                    onChange={e => setDC('showChart', e.target.checked)}
-                    style={{ accentColor:green, cursor:'pointer' }}/>
-                  <span style={{ ...mono, fontSize:9, color:(dc.showChart??DEFAULT_CARD.showChart)?green:dim }}>
-                    {(dc.showChart??DEFAULT_CARD.showChart)?'ON':'OFF'}
-                  </span>
-                </label>
               </div>
             </div>
           );
+        })()}
         })()}
 
                 {adminTab === "wallets" && data && (
@@ -4939,27 +5128,67 @@ const V2_TRI = (() => {
     `L0,${R} Q0,0 ${R},0 Z`].join(' ');
 })();
 
+
+// ── DEFAULT_CARD_V2: global V2 layout/style settings ─────────────────────────
+// Stored in S.defaultCardV2. Keys use v2_ prefix — no conflict with rank.card V1 fields.
+// Per-rank visual settings (gradient, accent) stay in rank.card.
+const DEFAULT_CARD_V2 = {
+  v2S1Max:          72,    // max PnL font size (binary-searched down if needed)
+  v2S2:             22,    // rank name + return % font size
+  v2S3:             13,    // all other text
+  v2BorderWidth:    1.1,
+  v2BorderOpacity:  0.38,
+  v2DividerWidth:   1,
+  v2DividerOpacity: 0.48,
+  v2DividerDash:    '4,4',
+  v2BracketLen:     16,
+  v2BracketOpacity: 0.18,
+  v2VolGraphX:      218,  // vol right-col x (with chart)
+  v2VolNgColA:      42,   // BOUGHT col x (no chart)
+  v2VolNgColB:      182,  // SOLD col x (no chart)
+  v2PnlYOffset:     0,    // shift PnL block from auto-centered position (px)
+  v2ReturnLabelGap: 14,   // gap from PnL baseline to RETURN label cap-top
+  v2ReturnValGap:   6,    // gap from RETURN label baseline to return value cap-top
+  v2NicknameYOff:   -8,   // offset from bottom bracket y
+  v2TfGap:          12,   // gap timeframe→logo top
+  v2TextAlign:      'center', // 'center'|'left'|'right' — admin default
+};
+
 function ShareCardInnerV2({ S, pnlCurve, closed, totalPnl, winRate, tf, walletLabel, _overrideRank, cardPnlCompact = false }) {
   const ranks = S.pnlRanks ?? PNL_RANKS;
   const rank  = _overrideRank ?? getPnlRank(totalPnl, ranks);
-  // V2 uses its own global defaults key (defaultCardV2) so it never interferes with V1 (defaultCard)
-  const c     = { ...DEFAULT_CARD, ...(S?.defaultCardV2 ?? {}), ...(rank.card ?? {}) };
-  const notchStyle = S.cardNotchStyle ?? 'semicircle';
-  const showChart  = c.showChart ?? true;
-  const ticket     = notchStyle === 'triangle' ? V2_TRI : V2_SEMI;
-  // Accent color: use rank.color OR per-rank custom override
-  const col        = (c.useRankColor ?? true) ? rank.color : (c.customColor ?? '#ffffff');
-  const isPos      = totalPnl >= 0;
-  const pnlColor   = isPos ? col : '#ff3355';
 
-  // PnL display string (currency + compact aware, same as V1)
+  // gc = global V2 layout (S.defaultCardV2 → admin Card V2 tab)
+  // rc = per-rank visual (rank.card → admin Ranks V2 tab)
+  const gc = { ...DEFAULT_CARD_V2, ...(S?.defaultCardV2 ?? {}) };
+  const rc = { ...DEFAULT_CARD,    ...(rank.card       ?? {}) };
+
+  const S1_MAX = gc.v2S1Max ?? 72;
+  const S2     = gc.v2S2    ?? 22;
+  const S3     = gc.v2S3    ?? 13;
+
+  // User bg image (local state in ShareModal, passed through S)
+  const bgImage     = S.cardV2BgImage     ?? null;
+  const bgTransform = S.cardV2BgTransform ?? { x:0, y:0, scale:1, rotate:0 };
+
+  // Text alignment: user pref overrides admin default
+  const textAlign = S.cardV2TextAlign ?? gc.v2TextAlign ?? 'center';
+
+  const notchStyle = S.cardNotchStyle ?? 'semicircle';
+  const showChart  = rc.showChart ?? true;
+  const ticket     = notchStyle === 'triangle' ? V2_TRI : V2_SEMI;
+
+  const col      = (rc.useRankColor ?? true) ? rank.color : (rc.customColor ?? '#ffffff');
+  const isPos    = totalPnl >= 0;
+  const pnlColor = isPos ? col : '#ff3355';
+
   const _cur = S?.currency ?? 'SOL';
   const _raw = solToDisplay(totalPnl, _cur) ?? totalPnl;
   const displayStr = (() => {
     const sign = totalPnl < 0 ? '-' : '+';
     if (cardPnlCompact && Math.abs(_raw) >= 1000) {
-      const k = (Math.abs(_raw) / 1000).toFixed(1);
-      const sym = _cur !== 'SOL' ? (CURRENCY_SYMBOLS[_cur] ?? _cur + ' ') : '';
+      const k = (Math.abs(_raw)/1000).toFixed(1);
+      const sym = _cur !== 'SOL' ? (CURRENCY_SYMBOLS[_cur] ?? _cur+' ') : '';
       return sign + sym + k + 'k';
     }
     return fmtC(totalPnl, S, 2);
@@ -4967,22 +5196,58 @@ function ShareCardInnerV2({ S, pnlCurve, closed, totalPnl, winRate, tf, walletLa
 
   const totalSolIn  = closed.reduce((s,x) => s + (x.solIn  || 0), 0);
   const totalSolOut = closed.reduce((s,x) => s + (x.solOut || 0), 0);
-  const pct    = totalSolIn > 0 ? (totalPnl / totalSolIn) * 100 : 0;
-  const retStr = `${pct >= 0 ? '+' : ''}${fmt(Math.abs(pct), 1)}%`;
+  const pct    = totalSolIn > 0 ? (totalPnl/totalSolIn)*100 : 0;
+  const retStr = `${pct >= 0 ? '+' : ''}${fmt(Math.abs(pct),1)}%`;
 
-  // Gradient — reuse rank gradient settings from V1
-  const gradA = c.gradientAngle ?? 135;
-  const rad   = (gradA * Math.PI) / 180;
-  const gx1 = +(0.5 - 0.5*Math.sin(rad)).toFixed(4);
-  const gy1 = +(0.5 + 0.5*Math.cos(rad)).toFixed(4);
-  const gx2 = +(0.5 + 0.5*Math.sin(rad)).toFixed(4);
-  const gy2 = +(0.5 - 0.5*Math.cos(rad)).toFixed(4);
-  const uid   = rank.name.replace(/\W/g,'');
-  const bgId  = `v2bg-${uid}`;
+  // Gradient (only used when no bgImage)
+  const gradA = rc.gradientAngle ?? 135;
+  const rad   = (gradA*Math.PI)/180;
+  const gx1 = +(0.5-0.5*Math.sin(rad)).toFixed(4);
+  const gy1 = +(0.5+0.5*Math.cos(rad)).toFixed(4);
+  const gx2 = +(0.5+0.5*Math.sin(rad)).toFixed(4);
+  const gy2 = +(0.5-0.5*Math.cos(rad)).toFixed(4);
+  const uid    = rank.name.replace(/\W/g,'');
+  const bgId   = `v2bg-${uid}`;
   const clipId = `v2clip-${uid}`;
 
-  // ── PnL layout: initial estimate (char-width table, same approach as V1) ──
-  // Used for first render — refined by useEffect below after Orbitron loads.
+  const BLEN  = gc.v2BracketLen     ?? V2_BLEN;
+  const BOPAC = gc.v2BracketOpacity ?? 0.18;
+
+  // Text alignment helpers
+  const TX = textAlign==='left' ? V2_BL_X : textAlign==='right' ? V2_BR_X : V2_W/2;
+  const TA = textAlign==='left' ? 'start'  : textAlign==='right' ? 'end'   : 'middle';
+
+  // PnL layout computation
+  const computeLayout = (fs, numW) => {
+    const capH  = 0.72*fs;
+    const lScl  = v2LS(fs);
+    const lW    = v2LWpx(fs);
+    const cw    = lW + V2_GAP + numW;
+    let logoX, numX;
+    if (textAlign === 'left') {
+      logoX = V2_PAD; numX = V2_PAD + lW + V2_GAP;
+    } else if (textAlign === 'right') {
+      numX = V2_BR_X - numW; logoX = numX - V2_GAP - lW;
+    } else {
+      const hPad = Math.max(V2_PAD, (V2_W-cw)/2);
+      logoX = hPad; numX = hPad + lW + V2_GAP;
+    }
+    const rlg     = gc.v2ReturnLabelGap ?? 14;
+    const rvg     = gc.v2ReturnValGap   ?? 6;
+    const blockH  = capH + rlg + S3 + rvg + S2;
+    const C_MID   = (V2_BT_Y + (V2_BB_Y - S3 - 16)) / 2;
+    const pnlBase = Math.round(C_MID + (gc.v2PnlYOffset??0) - blockH/2 + capH);
+    const logoTop = pnlBase - capH;
+    const unitMidX = logoX + (lW + V2_GAP + numW)/2;
+    const tfX = textAlign==='left' ? V2_PAD : textAlign==='right' ? V2_BR_X : unitMidX;
+    return {
+      fs, logoX, numX, lScl, lW, capH, pnlBase, logoTop,
+      tfX, tfY: logoTop - (gc.v2TfGap??12),
+      retLblY: pnlBase + rlg + S3,
+      retValY: pnlBase + rlg + S3 + rvg + S2,
+    };
+  };
+
   const initialLayout = useMemo(() => {
     const ORB = ch => {
       if (/[0-9]/.test(ch)) return 0.62;
@@ -4994,34 +5259,20 @@ function ShareCardInnerV2({ S, pnlCurve, closed, totalPnl, winRate, tf, walletLa
       return 0.55;
     };
     const availW = V2_W - 2*V2_PAD;
-    const estimateW = fs =>
-      displayStr.split('').reduce((s,ch) => s + fs*ORB(ch), 0) - 1.5*(displayStr.length-1);
-    const contentW = fs => v2LWpx(fs) + V2_GAP + estimateW(fs);
-    let fs = V2_MAX_FS;
-    if (contentW(fs) > availW) {
-      let lo=20, hi=V2_MAX_FS;
-      for (let i=0; i<40; i++) { const m=(lo+hi)/2; contentW(m)<=availW?(lo=m):(hi=m); }
+    const est    = fs => displayStr.split('').reduce((s,ch) => s+fs*ORB(ch), 0) - 1.5*(displayStr.length-1);
+    const cw     = fs => v2LWpx(fs) + V2_GAP + est(fs);
+    let fs = S1_MAX;
+    if (cw(fs) > availW) {
+      let lo=20, hi=S1_MAX;
+      for (let i=0;i<40;i++) { const m=(lo+hi)/2; cw(m)<=availW?(lo=m):(hi=m); }
       fs = lo;
     }
-    const hPad  = Math.max(V2_PAD, (V2_W - contentW(fs)) / 2);
-    const capH  = 0.72 * fs;
-    const lScl  = v2LS(fs);
-    const lW    = v2LWpx(fs);
-    const tw    = estimateW(fs);
-    const C_MID = (V2_BT_Y + (V2_BB_Y - V2_S3 - 16)) / 2; // 195.5
-    const blockH  = capH + 14 + V2_S3 + 6 + V2_S2;
-    const pnlBase = Math.round(C_MID - blockH/2 + capH);
-    const logoTop = pnlBase - capH;
-    return { fs, hPad, lScl, lW, pnlBase, logoTop,
-      numX: hPad+lW+V2_GAP,
-      tfX: hPad+(lW+V2_GAP+tw)/2, tfY: logoTop-12,
-      retLblY: pnlBase+14+V2_S3, retValY: pnlBase+14+V2_S3+6+V2_S2 };
-  }, [displayStr]);
+    return computeLayout(fs, est(fs));
+  }, [displayStr, textAlign, S1_MAX, gc.v2PnlYOffset, gc.v2ReturnLabelGap, gc.v2ReturnValGap, gc.v2TfGap]);
 
   const [layout, setLayout] = useState(initialLayout);
   const pnlNumRef = useRef(null);
 
-  // ── Refine layout after Orbitron is loaded (getBBox = exact measurement) ──
   useEffect(() => {
     let cancelled = false;
     const el = pnlNumRef.current;
@@ -5029,37 +5280,24 @@ function ShareCardInnerV2({ S, pnlCurve, closed, totalPnl, winRate, tf, walletLa
     document.fonts.ready.then(() => {
       if (cancelled || !el.getBBox) return;
       const availW = V2_W - 2*V2_PAD;
-      const contentW = fs => {
+      const measure = fs => {
         el.setAttribute('font-size', fs);
         try { return v2LWpx(fs) + V2_GAP + el.getBBox().width; }
         catch { return Infinity; }
       };
-      let fs = V2_MAX_FS;
-      if (contentW(fs) > availW) {
-        let lo=20, hi=V2_MAX_FS;
-        for (let i=0; i<40; i++) { const m=(lo+hi)/2; contentW(m)<=availW?(lo=m):(hi=m); }
+      let fs = S1_MAX;
+      if (measure(fs) > availW) {
+        let lo=20, hi=S1_MAX;
+        for (let i=0;i<40;i++) { const m=(lo+hi)/2; measure(m)<=availW?(lo=m):(hi=m); }
         fs = lo;
       }
       el.setAttribute('font-size', fs);
-      const cw    = contentW(fs);
-      const hPad  = Math.max(V2_PAD, (V2_W - cw) / 2);
-      const capH  = 0.72 * fs;
-      const lScl  = v2LS(fs);
-      const lW    = v2LWpx(fs);
-      const tw    = el.getBBox().width;
-      const C_MID = (V2_BT_Y + (V2_BB_Y - V2_S3 - 16)) / 2;
-      const blockH  = capH + 14 + V2_S3 + 6 + V2_S2;
-      const pnlBase = Math.round(C_MID - blockH/2 + capH);
-      const logoTop = pnlBase - capH;
-      if (!cancelled) setLayout({ fs, hPad, lScl, lW, pnlBase, logoTop,
-        numX: hPad+lW+V2_GAP,
-        tfX: hPad+(lW+V2_GAP+tw)/2, tfY: logoTop-12,
-        retLblY: pnlBase+14+V2_S3, retValY: pnlBase+14+V2_S3+6+V2_S2 });
+      if (!cancelled) setLayout(computeLayout(fs, el.getBBox().width));
     });
     return () => { cancelled = true; };
-  }, [displayStr]);
+  }, [displayStr, textAlign, S1_MAX, gc.v2PnlYOffset, gc.v2ReturnLabelGap, gc.v2ReturnValGap, gc.v2TfGap]);
 
-  const L = layout;
+  const L    = layout;
   const fOrb = `'Orbitron',monospace`;
 
   // Sparkline
@@ -5068,7 +5306,7 @@ function ShareCardInnerV2({ S, pnlCurve, closed, totalPnl, winRate, tf, walletLa
   if (showChart && pnlCurve && pnlCurve.length >= 2) {
     const vals = pnlCurve.map(d => d.cumPnl);
     const mn=Math.min(...vals), mx=Math.max(...vals), rng=mx-mn||1;
-    const px=4, py=4, iw=CURVE_W-px*2, ih=CURVE_H-py*2;
+    const px=4,py=4,iw=CURVE_W-px*2,ih=CURVE_H-py*2;
     const tx = i => px + (i/(vals.length-1))*iw;
     const ty = v => py + (1-(v-mn)/rng)*ih;
     cv = {
@@ -5077,53 +5315,56 @@ function ShareCardInnerV2({ S, pnlCurve, closed, totalPnl, winRate, tf, walletLa
     };
   }
 
-  // Vol logo dimensions at SIZE_3 (with-graph) and SIZE_2 (no-graph)
-  const vlS3=v2LS(V2_S3), vlW3=Math.round(v2LWpx(V2_S3)), vlH3=Math.round(V2_LH*vlS3);
-  const vlS2=v2LS(V2_S2), vlW2=Math.round(v2LWpx(V2_S2)), vlH2=Math.round(V2_LH*vlS2);
+  const WG_X   = gc.v2VolGraphX ?? 218;
+  const NG_LXA = gc.v2VolNgColA ?? 42;
+  const NG_LXB = gc.v2VolNgColB ?? 182;
 
-  // With-graph vol: right column x=218, all SIZE_3
-  // Centered in stub zone 400-484 (84px): top_pad=16, bottom_pad=16
-  const WG_X=218, WG_NX=WG_X+vlW3+5;
+  const vlS3=v2LS(S3), vlW3=Math.round(v2LWpx(S3)), vlH3=Math.round(V2_LH*vlS3);
+  const vlS2=v2LS(S2), vlW2=Math.round(v2LWpx(S2)), vlH2=Math.round(V2_LH*vlS2);
+
+  const WG_NX  = WG_X   + vlW3 + 5;
+  const NG_NXA = NG_LXA + vlW2 + 5;
+  const NG_NXB = NG_LXB + vlW2 + 5;
+
+  // With-graph vol: centered in stub zone 400-484 (84px), top_pad=16
   const WG_L1=425, WG_N1=437, WG_L2=456, WG_N2=468;
-
-  // No-graph vol: two columns, SIZE_3 labels + SIZE_2 nums
-  // Centered in stub zone: top_pad=27, bottom_pad=26
-  const NG_LXA=42, NG_LXB=182;
-  const NG_NXA=NG_LXA+vlW2+5, NG_NXB=NG_LXB+vlW2+5;
+  // No-graph vol: centered, top_pad=27
   const NG_LBL_Y=436, NG_NUM_Y=458, NG_LOGO_T=NG_NUM_Y-vlH2;
+
+  const nickY = V2_BB_Y + (gc.v2NicknameYOff ?? -8);
 
   return (
     <svg width={V2_W} height={V2_H} xmlns="http://www.w3.org/2000/svg" className="no-ts-scale" style={{ display:'block' }}>
       <defs>
         <clipPath id={clipId}><path d={ticket}/></clipPath>
-        <linearGradient id={bgId} x1={gx1} y1={gy1} x2={gx2} y2={gy2}>
-          <stop offset={`${c.g1Stop??0}%`}   stopColor={rank.g1} stopOpacity={c.g1Opacity??0.68}/>
-          <stop offset={`${c.midStop??44}%`}  stopColor={c.midColor??'#0a0a0a'}/>
-          <stop offset={`${c.endStop??100}%`} stopColor={c.endColor??'#040404'}/>
-        </linearGradient>
-        {/* Stub fade gradient — only used when bgImage is set */}
-        {c.bgImage && (
-          <linearGradient id={`${uid}stubfade`} x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0%"   stopColor="#000000" stopOpacity="0"/>
-            <stop offset="100%" stopColor="#000000" stopOpacity="0.92"/>
+        {!bgImage && (
+          <linearGradient id={bgId} x1={gx1} y1={gy1} x2={gx2} y2={gy2}>
+            <stop offset={`${rc.g1Stop??0}%`}   stopColor={rank.g1} stopOpacity={rc.g1Opacity??0.68}/>
+            <stop offset={`${rc.midStop??44}%`}  stopColor={rc.midColor??'#0a0a0a'}/>
+            <stop offset={`${rc.endStop??100}%`} stopColor={rc.endColor??'#040404'}/>
           </linearGradient>
         )}
+        <linearGradient id={`${uid}stubfade`} x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%"   stopColor="#000000" stopOpacity="0"/>
+          <stop offset="100%" stopColor="#000000" stopOpacity={bgImage ? 0.92 : 0}/>
+        </linearGradient>
       </defs>
 
-      {/* Background image (optional) — clipped to ticket shape */}
-      {c.bgImage && (
-        <image x="0" y="0" width={V2_W} height={V2_H}
-          href={c.bgImage} clipPath={`url(#${clipId})`}
-          preserveAspectRatio="xMidYMid slice"/>
-      )}
-
-      {/* Gradient fill — full opacity when no image, reduced when image present */}
-      <path d={ticket} fill={`url(#${bgId})`} opacity={c.bgImage ? 0.55 : 1}/>
-
-      {/* Stub fade overlay — only when bgImage is set; covers notch → bottom */}
-      {c.bgImage && (
-        <rect x="0" y={V2_DIV_Y - V2_CUT} width={V2_W} height={V2_H - (V2_DIV_Y - V2_CUT)}
-          fill={`url(#${uid}stubfade)`} clipPath={`url(#${clipId})`}/>
+      {/* Background */}
+      {bgImage ? (
+        <>
+          <path d={ticket} fill="#060606"/>
+          <g clipPath={`url(#${clipId})`}>
+            <g transform={`translate(${170+(bgTransform.x||0)},${245+(bgTransform.y||0)}) rotate(${bgTransform.rotate||0}) scale(${bgTransform.scale||1})`}>
+              <image href={bgImage} x={-170} y={-245} width={V2_W} height={V2_H}
+                preserveAspectRatio="xMidYMid slice"/>
+            </g>
+          </g>
+          <rect x="0" y={V2_DIV_Y-V2_CUT} width={V2_W} height={V2_H-(V2_DIV_Y-V2_CUT)}
+            fill={`url(#${uid}stubfade)`} clipPath={`url(#${clipId})`}/>
+        </>
+      ) : (
+        <path d={ticket} fill={`url(#${bgId})`}/>
       )}
 
       {/* Band tint + bottom edge */}
@@ -5132,39 +5373,39 @@ function ShareCardInnerV2({ S, pnlCurve, closed, totalPnl, winRate, tf, walletLa
       <line x1="0" y1={V2_BAND_H} x2={V2_W} y2={V2_BAND_H}
         stroke={col} strokeWidth=".7" opacity=".2" clipPath={`url(#${clipId})`}/>
 
-      {/* Outer border — uses rank border settings, rounded joins for uniform appearance */}
+      {/* Outer border */}
       <path d={ticket} fill="none" stroke={col}
-        strokeWidth={c.borderWidth ?? 1.1} opacity={c.borderOpacity ?? 0.38}
+        strokeWidth={gc.v2BorderWidth ?? 1.1} opacity={gc.v2BorderOpacity ?? 0.38}
         strokeLinejoin="round" strokeLinecap="round"/>
 
       {/* Stub divider */}
       <line x1="22" y1={V2_DIV_Y} x2="318" y2={V2_DIV_Y}
-        stroke={col} strokeDasharray={c.dividerDash ?? '4,4'}
-        strokeWidth={c.dividerWidth ?? 1} opacity={c.dividerOpacity ?? 0.48}/>
+        stroke={col} strokeDasharray={gc.v2DividerDash ?? '4,4'}
+        strokeWidth={gc.v2DividerWidth ?? 1} opacity={gc.v2DividerOpacity ?? 0.48}/>
 
-      {/* L-brackets — PAD=24px gap from edge, band, and divider */}
-      <polyline points={`${V2_BL_X},${V2_BT_Y+V2_BLEN} ${V2_BL_X},${V2_BT_Y} ${V2_BL_X+V2_BLEN},${V2_BT_Y}`}
-        fill="none" stroke={col} strokeWidth="1" opacity=".18"/>
-      <polyline points={`${V2_BR_X-V2_BLEN},${V2_BT_Y} ${V2_BR_X},${V2_BT_Y} ${V2_BR_X},${V2_BT_Y+V2_BLEN}`}
-        fill="none" stroke={col} strokeWidth="1" opacity=".18"/>
-      <polyline points={`${V2_BL_X},${V2_BB_Y-V2_BLEN} ${V2_BL_X},${V2_BB_Y} ${V2_BL_X+V2_BLEN},${V2_BB_Y}`}
-        fill="none" stroke={col} strokeWidth="1" opacity=".18"/>
-      <polyline points={`${V2_BR_X-V2_BLEN},${V2_BB_Y} ${V2_BR_X},${V2_BB_Y} ${V2_BR_X},${V2_BB_Y-V2_BLEN}`}
-        fill="none" stroke={col} strokeWidth="1" opacity=".18"/>
+      {/* L-brackets */}
+      <polyline points={`${V2_BL_X},${V2_BT_Y+BLEN} ${V2_BL_X},${V2_BT_Y} ${V2_BL_X+BLEN},${V2_BT_Y}`}
+        fill="none" stroke={col} strokeWidth="1" opacity={BOPAC}/>
+      <polyline points={`${V2_BR_X-BLEN},${V2_BT_Y} ${V2_BR_X},${V2_BT_Y} ${V2_BR_X},${V2_BT_Y+BLEN}`}
+        fill="none" stroke={col} strokeWidth="1" opacity={BOPAC}/>
+      <polyline points={`${V2_BL_X},${V2_BB_Y-BLEN} ${V2_BL_X},${V2_BB_Y} ${V2_BL_X+BLEN},${V2_BB_Y}`}
+        fill="none" stroke={col} strokeWidth="1" opacity={BOPAC}/>
+      <polyline points={`${V2_BR_X-BLEN},${V2_BB_Y} ${V2_BR_X},${V2_BB_Y} ${V2_BR_X},${V2_BB_Y-BLEN}`}
+        fill="none" stroke={col} strokeWidth="1" opacity={BOPAC}/>
 
-      {/* Rank name — SIZE_2, centered in band */}
-      <text x={V2_W/2} y="33" textAnchor="middle"
-        fontFamily={fOrb} fontWeight="900" fontSize={V2_S2}
+      {/* Rank name */}
+      <text x={TX} y="33" textAnchor={TA}
+        fontFamily={fOrb} fontWeight="900" fontSize={S2}
         fill={col} letterSpacing="2"
         style={{ filter:`drop-shadow(0 0 8px ${col}44)` }}>{rank.name}</text>
 
-      {/* Timeframe — SIZE_3, centered above PnL unit */}
-      <text x={L.tfX} y={L.tfY} textAnchor="middle"
-        fontFamily={fOrb} fontSize={V2_S3}
+      {/* Timeframe */}
+      <text x={L.tfX} y={L.tfY} textAnchor={TA}
+        fontFamily={fOrb} fontSize={S3}
         fill="rgba(255,255,255,0.62)" letterSpacing="2">{tf || 'ALL TIME'}</text>
 
-      {/* PnL unit: logo + number */}
-      <g transform={`translate(${L.hPad.toFixed(1)},${L.logoTop.toFixed(1)}) scale(${L.lScl.toFixed(4)})`}
+      {/* PnL unit */}
+      <g transform={`translate(${L.logoX.toFixed(1)},${L.logoTop.toFixed(1)}) scale(${L.lScl.toFixed(4)})`}
         fill={pnlColor} style={{ filter:`drop-shadow(0 0 12px ${pnlColor}44)` }}>
         <path d={V2_LOGO_PATH}/>
       </g>
@@ -5176,20 +5417,20 @@ function ShareCardInnerV2({ S, pnlCurve, closed, totalPnl, winRate, tf, walletLa
         {displayStr}
       </text>
 
-      {/* RETURN label + value */}
-      <text x={V2_W/2} y={L.retLblY} textAnchor="middle"
-        fontFamily={fOrb} fontSize={V2_S3}
+      {/* RETURN */}
+      <text x={TX} y={L.retLblY} textAnchor={TA}
+        fontFamily={fOrb} fontSize={S3}
         fill="rgba(255,255,255,0.62)" letterSpacing="1">RETURN</text>
-      <text x={V2_W/2} y={L.retValY} textAnchor="middle"
-        fontFamily={fOrb} fontWeight="700" fontSize={V2_S2}
+      <text x={TX} y={L.retValY} textAnchor={TA}
+        fontFamily={fOrb} fontWeight="700" fontSize={S2}
         fill={pnlColor} opacity=".88">{retStr}</text>
 
-      {/* Nickname — SIZE_3, centered, above bottom bracket arms */}
-      <text x={V2_W/2} y={V2_BB_Y-8} textAnchor="middle"
-        fontFamily={fOrb} fontSize={V2_S3}
+      {/* Nickname */}
+      <text x={TX} y={nickY} textAnchor={TA}
+        fontFamily={fOrb} fontSize={S3}
         fill="rgba(255,255,255,0.52)">{walletLabel}</text>
 
-      {/* ── STUB ── */}
+      {/* STUB */}
       {showChart ? (
         <>
           {cv && (
@@ -5200,39 +5441,36 @@ function ShareCardInnerV2({ S, pnlCurve, closed, totalPnl, winRate, tf, walletLa
                 style={{ filter:`drop-shadow(0 0 5px ${pnlColor})` }}/>
             </svg>
           )}
-          {/* Vol right col — SIZE_3 labels + SIZE_3 logo+nums */}
-          <text x={WG_X} y={WG_L1} fontFamily={fOrb} fontSize={V2_S3}
+          <text x={WG_X} y={WG_L1} fontFamily={fOrb} fontSize={S3}
             fill="rgba(255,255,255,0.52)">BOUGHT</text>
           <g transform={`translate(${WG_X},${WG_N1-vlH3}) scale(${vlS3.toFixed(4)})`}
             fill="rgba(255,255,255,0.40)"><path d={V2_LOGO_PATH}/></g>
-          <text x={WG_NX} y={WG_N1} fontFamily={fOrb} fontSize={V2_S3}
+          <text x={WG_NX} y={WG_N1} fontFamily={fOrb} fontSize={S3}
             fill="rgba(255,255,255,0.72)">{fmtC(totalSolIn, S, 1).replace(' SOL','')}</text>
-          <text x={WG_X} y={WG_L2} fontFamily={fOrb} fontSize={V2_S3}
+          <text x={WG_X} y={WG_L2} fontFamily={fOrb} fontSize={S3}
             fill={col} opacity=".55">SOLD</text>
           <g transform={`translate(${WG_X},${WG_N2-vlH3}) scale(${vlS3.toFixed(4)})`}
             fill={col} opacity=".68"><path d={V2_LOGO_PATH}/></g>
-          <text x={WG_NX} y={WG_N2} fontFamily={fOrb} fontSize={V2_S3}
+          <text x={WG_NX} y={WG_N2} fontFamily={fOrb} fontSize={S3}
             fill={col}>{fmtC(totalSolOut, S, 1).replace(' SOL','')}</text>
         </>
       ) : (
         <>
-          {/* Vol two-column — SIZE_3 labels + SIZE_2 logo+nums, side by side */}
-          <text x={NG_LXA} y={NG_LBL_Y} fontFamily={fOrb} fontSize={V2_S3}
+          <text x={NG_LXA} y={NG_LBL_Y} fontFamily={fOrb} fontSize={S3}
             fill="rgba(255,255,255,0.52)">BOUGHT</text>
           <g transform={`translate(${NG_LXA},${NG_LOGO_T}) scale(${vlS2.toFixed(4)})`}
             fill="rgba(255,255,255,0.40)"><path d={V2_LOGO_PATH}/></g>
-          <text x={NG_NXA} y={NG_NUM_Y} fontFamily={fOrb} fontWeight="700" fontSize={V2_S2}
+          <text x={NG_NXA} y={NG_NUM_Y} fontFamily={fOrb} fontWeight="700" fontSize={S2}
             fill="rgba(255,255,255,0.80)">{fmtC(totalSolIn, S, 2).replace(' SOL','')}</text>
-          <text x={NG_LXB} y={NG_LBL_Y} fontFamily={fOrb} fontSize={V2_S3}
+          <text x={NG_LXB} y={NG_LBL_Y} fontFamily={fOrb} fontSize={S3}
             fill={col} opacity=".60">SOLD</text>
           <g transform={`translate(${NG_LXB},${NG_LOGO_T}) scale(${vlS2.toFixed(4)})`}
             fill={col} opacity=".78"><path d={V2_LOGO_PATH}/></g>
-          <text x={NG_NXB} y={NG_NUM_Y} fontFamily={fOrb} fontWeight="700" fontSize={V2_S2}
+          <text x={NG_NXB} y={NG_NUM_Y} fontFamily={fOrb} fontWeight="700" fontSize={S2}
             fill={col}>{fmtC(totalSolOut, S, 2).replace(' SOL','')}</text>
         </>
       )}
 
-      {/* Watermark */}
       <text x={V2_W/2} y={V2_H-8} textAnchor="middle"
         fontFamily={fOrb} fontSize="5"
         fill="rgba(255,255,255,0.06)" letterSpacing="2">{S.appName ?? 'SOLTRACK'}</text>
@@ -5246,13 +5484,16 @@ function ShareModal({ S, setSetting, pnlCurve, closed, totalPnl, winRate, tf, wa
   const rank  = getPnlRank(totalPnl, ranks);
   const captureRef = useRef(null);
   const [capturing, setCapturing] = useState(null); // null | "download" | "copy" | "copied"
-  // User can toggle chart visibility for this session (overrides rank default)
   const defaultShowChart = { ...(DEFAULT_CARD), ...(rank.card ?? {}) }.showChart ?? true;
   const [showChart, setShowChart] = useState(defaultShowChart);
-  const [customLabel, setCustomLabel] = useState(""); // "" = use default walletLabel
-  const [cardTextScale, setCardTextScale] = useState(1.0); // 0.5–1.5 multiplier for minor text
-  const [cardPnlCompact, setCardPnlCompact] = useState(false); // show 1.2k instead of 1247.3
+  const [customLabel, setCustomLabel] = useState("");
+  const [cardTextScale, setCardTextScale] = useState(1.0);
+  const [cardPnlCompact, setCardPnlCompact] = useState(false);
   const [useV2Design, setUseV2Design] = useState(S.cardDesignV2 ?? false);
+  // V2-only: text alignment (persisted in S) and background image (session-only, not persisted)
+  const [v2TextAlign, setV2TextAlign] = useState(S.cardV2TextAlign ?? 'center');
+  const [v2BgImage,   setV2BgImage]   = useState(null);
+  const [v2BgTx,      setV2BgTx]      = useState({ x:0, y:0, scale:1, rotate:0 });
   // Build a merged rank with the user's session overrides applied
   const baseCard = { ...DEFAULT_CARD, ...(rank.card ?? {}) };
   const previewRank = { ...rank, card: {
@@ -5422,7 +5663,9 @@ function ShareModal({ S, setSetting, pnlCurve, closed, totalPnl, winRate, tf, wa
           display:'flex', alignItems:'center', justifyContent:'center' }}>
           <div ref={captureRef} style={{ display:'block', lineHeight:0 }}>
             {useV2Design
-              ? <ShareCardInnerV2 S={S} pnlCurve={pnlCurve} closed={closed}
+              ? <ShareCardInnerV2
+                  S={{ ...S, cardV2TextAlign: v2TextAlign, cardV2BgImage: v2BgImage, cardV2BgTransform: v2BgTx }}
+                  pnlCurve={pnlCurve} closed={closed}
                   totalPnl={totalPnl} winRate={winRate} tf={tf}
                   walletLabel={customLabel.trim() || walletLabel}
                   cardPnlCompact={cardPnlCompact}
@@ -5503,9 +5746,8 @@ function ShareModal({ S, setSetting, pnlCurve, closed, totalPnl, winRate, tf, wa
             </div>
           </div>
 
-          {/* Row 2: chart toggle + compact toggle + text scale */}
+          {/* Row 2: chart + compact + text scale (text scale hidden for V2) */}
           <div style={{ display:'flex', gap:16, alignItems:'center' }}>
-            {/* Chart */}
             <div style={{ flexShrink:0 }}>
               <div style={{ ...mono, fontSize:7, color:'#444', letterSpacing:'.12em', marginBottom:5 }}>CHART</div>
               <label style={{ display:'flex', alignItems:'center', gap:6, cursor:'pointer' }}>
@@ -5516,7 +5758,6 @@ function ShareModal({ S, setSetting, pnlCurve, closed, totalPnl, winRate, tf, wa
                 </span>
               </label>
             </div>
-            {/* Compact PnL */}
             <div style={{ flexShrink:0 }}>
               <div style={{ ...mono, fontSize:7, color:'#444', letterSpacing:'.12em', marginBottom:5 }}>COMPACT</div>
               <label style={{ display:'flex', alignItems:'center', gap:6, cursor:'pointer' }}>
@@ -5525,19 +5766,112 @@ function ShareModal({ S, setSetting, pnlCurve, closed, totalPnl, winRate, tf, wa
                 <span style={{ ...mono, fontSize:8, color: cardPnlCompact ? accentColor : '#555' }}>1k</span>
               </label>
             </div>
-
-            {/* Text scale */}
-            <div style={{ flex:1 }}>
-              <div style={{ ...mono, fontSize:7, color:'#444', letterSpacing:'.12em', marginBottom:5 }}>
-                TEXT SIZE — <span style={{ color: accentColor }}>{Math.round(cardTextScale*100)}%</span>
+            {/* Text scale — V1 only */}
+            {!useV2Design && (
+              <div style={{ flex:1 }}>
+                <div style={{ ...mono, fontSize:7, color:'#444', letterSpacing:'.12em', marginBottom:5 }}>
+                  TEXT SIZE — <span style={{ color: accentColor }}>{Math.round(cardTextScale*100)}%</span>
+                </div>
+                <input type="range" min={0.4} max={1.8} step={0.05} value={cardTextScale}
+                  onChange={e => setCardTextScale(+e.target.value)}
+                  style={{ width:'100%', accentColor, display:'block' }} />
               </div>
-              <input type="range" min={0.4} max={1.8} step={0.05} value={cardTextScale}
-                onChange={e => setCardTextScale(+e.target.value)}
-                style={{ width:'100%', accentColor, display:'block' }} />
-            </div>
+            )}
           </div>
 
-          {/* Row 3: action buttons */}
+          {/* Row 3 (V2 only): text alignment */}
+          {useV2Design && (
+            <div style={{ display:'flex', gap:16, alignItems:'flex-start' }}>
+              <div style={{ flexShrink:0 }}>
+                <div style={{ ...mono, fontSize:7, color:'#444', letterSpacing:'.12em', marginBottom:5 }}>TEXT ALIGN</div>
+                <div style={{ display:'flex', gap:4 }}>
+                  {[
+                    { id:'left',   label:'◂ LEFT'   },
+                    { id:'center', label:'● CENTER' },
+                    { id:'right',  label:'RIGHT ▸'  },
+                  ].map(opt => {
+                    const active = v2TextAlign === opt.id;
+                    return (
+                      <button key={opt.id} onClick={() => {
+                        setV2TextAlign(opt.id);
+                        setSetting('cardV2TextAlign', opt.id);
+                      }}
+                        style={{ ...mono, fontSize:8, padding:'5px 10px',
+                          background: active ? accentColor+'1a' : '#111',
+                          border:`1px solid ${active ? accentColor : '#222'}`,
+                          color: active ? accentColor : '#555',
+                          cursor:'pointer', letterSpacing:'.06em', transition:'all .12s' }}>
+                        {opt.label}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Row 4 (V2 only): background image upload + transform */}
+          {useV2Design && (
+            <div style={{ display:'flex', flexDirection:'column', gap:8 }}>
+              <div style={{ display:'flex', gap:8, alignItems:'center' }}>
+                <div style={{ ...mono, fontSize:7, color:'#444', letterSpacing:'.12em', flexShrink:0 }}>BG IMAGE</div>
+                <label style={{ ...mono, fontSize:8, color: v2BgImage ? accentColor : '#555',
+                  cursor:'pointer', border:`1px dashed ${v2BgImage ? accentColor+'88' : '#333'}`,
+                  padding:'4px 10px', transition:'all .12s' }}>
+                  {v2BgImage ? '↑ REPLACE' : '↑ UPLOAD'}
+                  <input type="file" accept="image/*" style={{ display:'none' }}
+                    onChange={e => {
+                      const file = e.target.files?.[0]; if (!file) return;
+                      if (file.size > 4*1024*1024) { alert('Max 4 MB'); return; }
+                      const reader = new FileReader();
+                      reader.onload = ev => {
+                        setV2BgImage(ev.target.result);
+                        setV2BgTx({ x:0, y:0, scale:1, rotate:0 });
+                      };
+                      reader.readAsDataURL(file);
+                      e.target.value = '';
+                    }}/>
+                </label>
+                {v2BgImage && (
+                  <button onClick={() => { setV2BgImage(null); setV2BgTx({ x:0, y:0, scale:1, rotate:0 }); }}
+                    style={{ ...mono, fontSize:8, color:'#ff4444', background:'none',
+                      border:'1px solid #ff003333', cursor:'pointer', padding:'4px 8px' }}>✕ CLEAR</button>
+                )}
+                {v2BgImage && (
+                  <button onClick={() => setV2BgTx({ x:0, y:0, scale:1, rotate:0 })}
+                    style={{ ...mono, fontSize:8, color:'#555', background:'none',
+                      border:`1px solid #333`, cursor:'pointer', padding:'4px 8px' }}>↺ RESET</button>
+                )}
+              </div>
+              {/* Transform sliders — only shown when image is set */}
+              {v2BgImage && (
+                <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:'6px 16px' }}>
+                  {[
+                    { key:'x',      label:'X OFFSET',  min:-170, max:170, step:2  },
+                    { key:'y',      label:'Y OFFSET',  min:-245, max:245, step:2  },
+                    { key:'scale',  label:'ZOOM',      min:0.3,  max:4,   step:0.05 },
+                    { key:'rotate', label:'ROTATE',    min:0,    max:360, step:1  },
+                  ].map(({ key, label, min, max, step }) => (
+                    <div key={key}>
+                      <div style={{ ...mono, fontSize:7, color:'#444', letterSpacing:'.1em', marginBottom:3 }}>
+                        {label} <span style={{ color:accentColor }}>{key==='rotate'
+                          ? `${v2BgTx.rotate}°`
+                          : key==='scale'
+                            ? `${v2BgTx.scale.toFixed(2)}×`
+                            : v2BgTx[key]}</span>
+                      </div>
+                      <input type="range" min={min} max={max} step={step}
+                        value={v2BgTx[key] ?? (key==='scale'?1:0)}
+                        onChange={e => setV2BgTx(prev => ({ ...prev, [key]: +e.target.value }))}
+                        style={{ width:'100%', accentColor, display:'block' }}/>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Action buttons */}
           <div style={{ display:'flex', gap:8, justifyContent:'flex-end' }}>
             <button onClick={doCopy} disabled={!!capturing}
               style={{ ...mono, background:'none', border:`1px solid ${accentColor}55`,
@@ -5551,6 +5885,7 @@ function ShareModal({ S, setSetting, pnlCurve, closed, totalPnl, winRate, tf, wa
                 letterSpacing:'.1em', boxShadow:`0 0 12px ${accentColor}22`,
                 opacity:capturing?0.5:1, transition:'opacity .15s', fontWeight:700 }}>
               {capturing==='download' ? 'RENDERING…' : '↓ DOWNLOAD PNG'}
+
             </button>
           </div>
         </div>
