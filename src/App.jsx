@@ -3054,6 +3054,31 @@ function Onboarding({ S, workerUrl: workerUrlProp, onComplete, relogin = false }
 
 // ── ADMIN PANEL ───────────────────────────────────────────────────────────────
 // ── ADMIN PANEL ───────────────────────────────────────────────────────────────
+// ── DEFAULT_CARD_V2: global V2 layout/style settings ─────────────────────────
+// Stored in S.defaultCardV2. Keys use v2_ prefix — no conflict with rank.card V1 fields.
+// Per-rank visual settings (gradient, accent) stay in rank.card.
+const DEFAULT_CARD_V2 = {
+  v2S1Max:          72,    // max PnL font size (binary-searched down if needed)
+  v2S2:             22,    // rank name + return % font size
+  v2S3:             13,    // all other text
+  v2BorderWidth:    1.1,
+  v2BorderOpacity:  0.38,
+  v2DividerWidth:   1,
+  v2DividerOpacity: 0.48,
+  v2DividerDash:    '4,4',
+  v2BracketLen:     16,
+  v2BracketOpacity: 0.18,
+  v2VolGraphX:      218,  // vol right-col x (with chart)
+  v2VolNgColA:      42,   // BOUGHT col x (no chart)
+  v2VolNgColB:      182,  // SOLD col x (no chart)
+  v2PnlYOffset:     0,    // shift PnL block from auto-centered position (px)
+  v2ReturnLabelGap: 14,   // gap from PnL baseline to RETURN label cap-top
+  v2ReturnValGap:   6,    // gap from RETURN label baseline to return value cap-top
+  v2NicknameYOff:   -8,   // offset from bottom bracket y
+  v2TfGap:          12,   // gap timeframe→logo top
+  v2TextAlign:      'center', // 'center'|'left'|'right' — admin default
+};
+
 function AdminPanel({ S, setSetting }) {
   const [authed, setAuthed]   = useState(false);
   const [token, setToken]     = useState("");
@@ -3076,6 +3101,8 @@ function AdminPanel({ S, setSetting }) {
     JSON.parse(JSON.stringify(S?.pnlRanks ?? DEFAULT_SETTINGS.pnlRanks))
   );
   const [selectedRankIdx, setSelectedRankIdx] = useState(0);
+  const [adminPreviewCur, setAdminPreviewCur] = useState('SOL'); // currency for admin card previews
+  const ADMIN_PREVIEW_CURS = ['SOL','USD','EUR','PLN','UAH','KZT','GBP'];
   const prevPnlRanksRef = useRef(S?.pnlRanks);
   useEffect(() => {
     if (S?.pnlRanks !== prevPnlRanksRef.current) {
@@ -3876,9 +3903,6 @@ function AdminPanel({ S, setSetting }) {
             );
           };
 
-          const [previewCur, setPreviewCur] = useState('SOL');
-          const PREVIEW_CURS = ['SOL','USD','EUR','PLN','UAH','KZT','GBP'];
-
           return (
             <div style={{ display:'flex', gap:0, alignItems:'flex-start', minHeight:600 }}>
 
@@ -3962,7 +3986,7 @@ function AdminPanel({ S, setSetting }) {
                 <div style={{ ...mono, fontSize:8, color:dim, letterSpacing:'.12em' }}>LIVE PREVIEW · NEW DESIGN</div>
                 <div style={{ transform:'scale(0.82)', transformOrigin:'top center', marginBottom:-80 }}>
                   <ShareCardInnerV2
-                    S={{ ...S, currency: previewCur }}
+                    S={{ ...S, currency: adminPreviewCur }}
                     pnlCurve={[]} closed={[]}
                     totalPnl={previewR.min === -Infinity ? -1.5 : (previewR.min ?? 0) + 0.5}
                     winRate="58.0" tf="ALL" walletLabel={previewR.name} _overrideRank={previewR}/>
@@ -3972,10 +3996,10 @@ function AdminPanel({ S, setSetting }) {
                   · Border, divider, text sizes → Card V2 tab ·
                 </div>
                 <div style={{ marginTop:10, display:'flex', gap:4, flexWrap:'wrap', justifyContent:'center' }}>
-                  {PREVIEW_CURS.map(c => (
-                    <button key={c} onClick={() => setPreviewCur(c)}
+                  {ADMIN_PREVIEW_CURS.map(c => (
+                    <button key={c} onClick={() => setAdminPreviewCur(c)}
                       style={{ ...mono, fontSize:8, padding:'3px 8px',
-                        background: previewCur===c ? green+'22' : 'none',
+                        background: adminPreviewCur===c ? green+'22' : 'none',
                         border:`1px solid ${previewCur===c ? green : border}`,
                         color: previewCur===c ? green : dim,
                         cursor:'pointer', letterSpacing:'.06em' }}>{c}</button>
@@ -4164,7 +4188,6 @@ function AdminPanel({ S, setSetting }) {
               </div>
             </div>
           );
-        })()}
         })()}
 
                 {adminTab === "wallets" && data && (
@@ -5019,30 +5042,7 @@ const V2_TRI = (() => {
 })();
 
 
-// ── DEFAULT_CARD_V2: global V2 layout/style settings ─────────────────────────
-// Stored in S.defaultCardV2. Keys use v2_ prefix — no conflict with rank.card V1 fields.
-// Per-rank visual settings (gradient, accent) stay in rank.card.
-const DEFAULT_CARD_V2 = {
-  v2S1Max:          72,    // max PnL font size (binary-searched down if needed)
-  v2S2:             22,    // rank name + return % font size
-  v2S3:             13,    // all other text
-  v2BorderWidth:    1.1,
-  v2BorderOpacity:  0.38,
-  v2DividerWidth:   1,
-  v2DividerOpacity: 0.48,
-  v2DividerDash:    '4,4',
-  v2BracketLen:     16,
-  v2BracketOpacity: 0.18,
-  v2VolGraphX:      218,  // vol right-col x (with chart)
-  v2VolNgColA:      42,   // BOUGHT col x (no chart)
-  v2VolNgColB:      182,  // SOLD col x (no chart)
-  v2PnlYOffset:     0,    // shift PnL block from auto-centered position (px)
-  v2ReturnLabelGap: 14,   // gap from PnL baseline to RETURN label cap-top
-  v2ReturnValGap:   6,    // gap from RETURN label baseline to return value cap-top
-  v2NicknameYOff:   -8,   // offset from bottom bracket y
-  v2TfGap:          12,   // gap timeframe→logo top
-  v2TextAlign:      'center', // 'center'|'left'|'right' — admin default
-};
+
 
 function ShareCardInnerV2({ S, pnlCurve, closed, totalPnl, winRate, tf, walletLabel, _overrideRank, cardPnlCompact = false }) {
   const ranks = S.pnlRanks ?? PNL_RANKS;
@@ -5060,6 +5060,7 @@ function ShareCardInnerV2({ S, pnlCurve, closed, totalPnl, winRate, tf, walletLa
   // User bg image (local state in ShareModal, passed through S)
   const bgImage     = S.cardV2BgImage     ?? null;
   const bgTransform = S.cardV2BgTransform ?? { x:0, y:0, scale:1, rotate:0 };
+  const bgDarken    = S.cardV2BgDarken    ?? 40; // 0-100
 
   // Text alignment: user pref overrides admin default
   const textAlign = S.cardV2TextAlign ?? gc.v2TextAlign ?? 'center';
@@ -5272,6 +5273,11 @@ function ShareCardInnerV2({ S, pnlCurve, closed, totalPnl, winRate, tf, walletLa
               <image href={bgImage} x={-170} y={-245} width={V2_W} height={V2_H}
                 preserveAspectRatio="xMidYMid slice"/>
             </g>
+            {/* Darkening / vignette overlay on the image */}
+            {bgDarken > 0 && (
+              <rect x="0" y="0" width={V2_W} height={V2_H}
+                fill="#000000" opacity={bgDarken/100}/>
+            )}
           </g>
           <rect x="0" y={V2_DIV_Y-V2_CUT} width={V2_W} height={V2_H-(V2_DIV_Y-V2_CUT)}
             fill={`url(#${uid}stubfade)`} clipPath={`url(#${clipId})`}/>
@@ -5419,6 +5425,7 @@ function ShareModal({ S, setSetting, pnlCurve, closed, totalPnl, winRate, tf, wa
   const [v2TextAlign,    setV2TextAlign]    = useState(S.cardV2TextAlign ?? 'center');
   const [v2BgImage,      setV2BgImage]      = useState(null);
   const [v2BgTx,         setV2BgTx]         = useState({ x:0, y:0, scale:1, rotate:0 });
+  const [v2BgDarken,     setV2BgDarken]     = useState(40); // 0-100 darkness %
   const [v2UseRankColor, setV2UseRankColor] = useState(true);  // true=rank color, false=custom
   const [v2CustomColor,  setV2CustomColor]  = useState('#ffffff');
   const [v2ShowRank,     setV2ShowRank]     = useState(true);   // show rank name in band
@@ -5595,6 +5602,7 @@ function ShareModal({ S, setSetting, pnlCurve, closed, totalPnl, winRate, tf, wa
             {useV2Design
               ? <ShareCardInnerV2
                   S={{ ...S, cardV2TextAlign: v2TextAlign, cardV2BgImage: v2BgImage, cardV2BgTransform: v2BgTx,
+                    cardV2BgDarken: v2BgDarken,
                     cardV2UseRankColor: v2UseRankColor, cardV2CustomColor: v2CustomColor,
                     cardV2ShowRank: v2ShowRank, cardV2SecondField: v2ShowRank ? null : (v2ShowSecond ? v2SecondField : null) }}
                   pnlCurve={pnlCurve} closed={closed}
@@ -5610,291 +5618,286 @@ function ShareModal({ S, setSetting, pnlCurve, closed, totalPnl, winRate, tf, wa
           </div>
         </div>
 
-        {/* Settings panel */}
-        <div style={{ borderTop:'1px solid #1a1a1a', padding:'14px 18px', display:'flex', flexDirection:'column', gap:14 }}>
+        {/* Settings panel — two-column grid: left=universal, right=V2-only */}
+        <div style={{ borderTop:'1px solid #1a1a1a', padding:'14px 18px', display:'flex', flexDirection:'column', gap:12 }}>
 
-          {/* Row 1: label + design toggle + notch */}
-          <div style={{ display:'flex', gap:16, alignItems:'flex-start' }}>
-            {/* Wallet label */}
-            <div style={{ flex:1 }}>
-              <div style={{ ...mono, fontSize:7, color:'#444', letterSpacing:'.12em', marginBottom:5 }}>WALLET LABEL</div>
-              <div style={{ display:'flex', alignItems:'center', gap:6 }}>
-                <input value={customLabel} onChange={e => setCustomLabel(e.target.value)}
-                  placeholder={walletLabel} maxLength={32}
-                  style={{ flex:1, background:'#111', border:'1px solid #222', color:'#aaa',
-                    outline:'none', fontFamily:"'DM Mono',monospace", fontSize:9,
-                    padding:'5px 8px', letterSpacing:'.04em' }} />
-                {customLabel && (
-                  <button onMouseDown={e => { e.preventDefault(); setCustomLabel(''); }}
-                    style={{ background:'none', border:'1px solid #222', color:'#555',
-                      cursor:'pointer', fontSize:10, padding:'4px 7px', lineHeight:1 }}>×</button>
-                )}
-              </div>
-            </div>
-
-            {/* Design version toggle */}
-            <div style={{ flexShrink:0 }}>
-              <div style={{ ...mono, fontSize:7, color:'#444', letterSpacing:'.12em', marginBottom:5 }}>DESIGN</div>
-              <div style={{ display:'flex', gap:4 }}>
-                {[{ id:false, label:'CLASSIC' }, { id:true, label:'NEW' }].map(opt => {
-                  const active = useV2Design === opt.id;
-                  return (
-                    <button key={String(opt.id)}
-                      onClick={() => { setUseV2Design(opt.id); setSetting('cardDesignV2', opt.id); }}
-                      style={{ ...mono, fontSize:8, padding:'5px 10px',
-                        background: active ? accentColor+'1a' : '#111',
-                        border:`1px solid ${active ? accentColor : '#222'}`,
-                        color: active ? accentColor : '#555',
-                        cursor:'pointer', letterSpacing:'.08em', transition:'all .12s' }}>
-                      {opt.label}
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
-
-            {/* Notch style */}
-            <div style={{ flexShrink:0 }}>
-              <div style={{ ...mono, fontSize:7, color:'#444', letterSpacing:'.12em', marginBottom:5 }}>NOTCH</div>
-              <div style={{ display:'flex', gap:4 }}>
-                {[
-                  { id:'semicircle', label:'⌢  SEMI', title:'Semicircle notch — curved arc' },
-                  { id:'triangle',   label:'△  TRI',  title:'Triangle notch — pointed with rounded corners' },
-                ].map(opt => {
-                  const active = (S.cardNotchStyle ?? 'semicircle') === opt.id;
-                  return (
-                    <button key={opt.id} title={opt.title}
-                      onClick={() => setSetting('cardNotchStyle', opt.id)}
-                      style={{ ...mono, fontSize:8, padding:'5px 10px',
-                        background: active ? accentColor+'1a' : '#111',
-                        border:`1px solid ${active ? accentColor : '#222'}`,
-                        color: active ? accentColor : '#555',
-                        cursor:'pointer', letterSpacing:'.08em', transition:'all .12s' }}>
-                      {opt.label}
-                    </button>
-                  );
-                })}
-              </div>
+          {/* Top row: wallet label (full width) */}
+          <div>
+            <div style={{ ...mono, fontSize:7, color:'#444', letterSpacing:'.12em', marginBottom:5 }}>WALLET LABEL</div>
+            <div style={{ display:'flex', alignItems:'center', gap:6 }}>
+              <input value={customLabel} onChange={e => setCustomLabel(e.target.value)}
+                placeholder={walletLabel} maxLength={32}
+                style={{ flex:1, background:'#111', border:'1px solid #222', color:'#aaa',
+                  outline:'none', fontFamily:"'DM Mono',monospace", fontSize:9,
+                  padding:'5px 8px', letterSpacing:'.04em' }} />
+              {customLabel && (
+                <button onMouseDown={e => { e.preventDefault(); setCustomLabel(''); }}
+                  style={{ background:'none', border:'1px solid #222', color:'#555',
+                    cursor:'pointer', fontSize:10, padding:'4px 7px', lineHeight:1 }}>×</button>
+              )}
             </div>
           </div>
 
-          {/* Row 2: chart + compact + text scale (text scale hidden for V2) */}
-          <div style={{ display:'flex', gap:16, alignItems:'center' }}>
-            <div style={{ flexShrink:0 }}>
-              <div style={{ ...mono, fontSize:7, color:'#444', letterSpacing:'.12em', marginBottom:5 }}>CHART</div>
-              <label style={{ display:'flex', alignItems:'center', gap:6, cursor:'pointer' }}>
-                <input type="checkbox" checked={showChart} onChange={e => setShowChart(e.target.checked)}
-                  style={{ accentColor, cursor:'pointer', width:13, height:13 }}/>
-                <span style={{ ...mono, fontSize:8, color: showChart ? accentColor : '#555' }}>
-                  {showChart ? 'ON' : 'OFF'}
-                </span>
-              </label>
-            </div>
-            <div style={{ flexShrink:0 }}>
-              <div style={{ ...mono, fontSize:7, color:'#444', letterSpacing:'.12em', marginBottom:5 }}>COMPACT</div>
-              <label style={{ display:'flex', alignItems:'center', gap:6, cursor:'pointer' }}>
-                <input type="checkbox" checked={cardPnlCompact} onChange={e => setCardPnlCompact(e.target.checked)}
-                  style={{ accentColor, cursor:'pointer', width:13, height:13 }}/>
-                <span style={{ ...mono, fontSize:8, color: cardPnlCompact ? accentColor : '#555' }}>1000→1k</span>
-              </label>
-            </div>
-            {/* Text scale — V1 only */}
-            {!useV2Design && (
-              <div style={{ flex:1 }}>
-                <div style={{ ...mono, fontSize:7, color:'#444', letterSpacing:'.12em', marginBottom:5 }}>
-                  TEXT SIZE — <span style={{ color: accentColor }}>{Math.round(cardTextScale*100)}%</span>
+          {/* Control grid */}
+          <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:'10px 20px' }}>
+
+            {/* ── LEFT COLUMN: universal controls ── */}
+            <div style={{ display:'flex', flexDirection:'column', gap:10 }}>
+
+              {/* Design + Notch */}
+              <div style={{ display:'flex', gap:12, flexWrap:'wrap' }}>
+                <div style={{ flexShrink:0 }}>
+                  <div style={{ ...mono, fontSize:7, color:'#444', letterSpacing:'.12em', marginBottom:5 }}>DESIGN</div>
+                  <div style={{ display:'flex', gap:4 }}>
+                    {[{ id:false, label:'CLASSIC' }, { id:true, label:'NEW' }].map(opt => {
+                      const active = useV2Design === opt.id;
+                      return (
+                        <button key={String(opt.id)}
+                          onClick={() => { setUseV2Design(opt.id); setSetting('cardDesignV2', opt.id); }}
+                          style={{ ...mono, fontSize:8, padding:'5px 10px',
+                            background: active ? accentColor+'1a' : '#111',
+                            border:`1px solid ${active ? accentColor : '#222'}`,
+                            color: active ? accentColor : '#555',
+                            cursor:'pointer', letterSpacing:'.08em', transition:'all .12s' }}>
+                          {opt.label}
+                        </button>
+                      );
+                    })}
+                  </div>
                 </div>
-                <input type="range" min={0.4} max={1.8} step={0.05} value={cardTextScale}
-                  onChange={e => setCardTextScale(+e.target.value)}
-                  style={{ width:'100%', accentColor, display:'block' }} />
+                <div style={{ flexShrink:0 }}>
+                  <div style={{ ...mono, fontSize:7, color:'#444', letterSpacing:'.12em', marginBottom:5 }}>NOTCH</div>
+                  <div style={{ display:'flex', gap:4 }}>
+                    {[
+                      { id:'semicircle', label:'⌢ SEMI' },
+                      { id:'triangle',   label:'△ TRI'  },
+                    ].map(opt => {
+                      const active = (S.cardNotchStyle ?? 'semicircle') === opt.id;
+                      return (
+                        <button key={opt.id} onClick={() => setSetting('cardNotchStyle', opt.id)}
+                          style={{ ...mono, fontSize:8, padding:'5px 10px',
+                            background: active ? accentColor+'1a' : '#111',
+                            border:`1px solid ${active ? accentColor : '#222'}`,
+                            color: active ? accentColor : '#555',
+                            cursor:'pointer', letterSpacing:'.06em', transition:'all .12s' }}>
+                          {opt.label}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              </div>
+
+              {/* Chart + Compact */}
+              <div style={{ display:'flex', gap:12 }}>
+                <div>
+                  <div style={{ ...mono, fontSize:7, color:'#444', letterSpacing:'.12em', marginBottom:5 }}>CHART</div>
+                  <label style={{ display:'flex', alignItems:'center', gap:6, cursor:'pointer' }}>
+                    <input type="checkbox" checked={showChart} onChange={e => setShowChart(e.target.checked)}
+                      style={{ accentColor, cursor:'pointer', width:13, height:13 }}/>
+                    <span style={{ ...mono, fontSize:8, color: showChart ? accentColor : '#555' }}>
+                      {showChart ? 'ON' : 'OFF'}
+                    </span>
+                  </label>
+                </div>
+                <div>
+                  <div style={{ ...mono, fontSize:7, color:'#444', letterSpacing:'.12em', marginBottom:5 }}>COMPACT</div>
+                  <label style={{ display:'flex', alignItems:'center', gap:6, cursor:'pointer' }}>
+                    <input type="checkbox" checked={cardPnlCompact} onChange={e => setCardPnlCompact(e.target.checked)}
+                      style={{ accentColor, cursor:'pointer', width:13, height:13 }}/>
+                    <span style={{ ...mono, fontSize:8, color: cardPnlCompact ? accentColor : '#555' }}>1000→1k</span>
+                  </label>
+                </div>
+              </div>
+
+              {/* Text scale — V1 only */}
+              {!useV2Design && (
+                <div>
+                  <div style={{ ...mono, fontSize:7, color:'#444', letterSpacing:'.12em', marginBottom:5 }}>
+                    TEXT SIZE — <span style={{ color: accentColor }}>{Math.round(cardTextScale*100)}%</span>
+                  </div>
+                  <input type="range" min={0.4} max={1.8} step={0.05} value={cardTextScale}
+                    onChange={e => setCardTextScale(+e.target.value)}
+                    style={{ width:'100%', accentColor, display:'block' }} />
+                </div>
+              )}
+
+              {/* V2: text align */}
+              {useV2Design && (
+                <div>
+                  <div style={{ ...mono, fontSize:7, color:'#444', letterSpacing:'.12em', marginBottom:5 }}>TEXT ALIGN</div>
+                  <div style={{ display:'flex', gap:4 }}>
+                    {[
+                      { id:'left',   label:'◂ L' },
+                      { id:'center', label:'● C' },
+                      { id:'right',  label:'R ▸' },
+                    ].map(opt => {
+                      const active = v2TextAlign === opt.id;
+                      return (
+                        <button key={opt.id} onClick={() => {
+                          setV2TextAlign(opt.id);
+                          setSetting('cardV2TextAlign', opt.id);
+                        }}
+                          style={{ ...mono, fontSize:8, padding:'5px 10px',
+                            background: active ? accentColor+'1a' : '#111',
+                            border:`1px solid ${active ? accentColor : '#222'}`,
+                            color: active ? accentColor : '#555',
+                            cursor:'pointer', letterSpacing:'.06em', transition:'all .12s' }}>
+                          {opt.label}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* ── RIGHT COLUMN: V2-only controls ── */}
+            {useV2Design && (
+              <div style={{ display:'flex', flexDirection:'column', gap:10 }}>
+
+                {/* Accent color */}
+                <div>
+                  <div style={{ ...mono, fontSize:7, color:'#444', letterSpacing:'.12em', marginBottom:5 }}>ACCENT COLOR</div>
+                  <div style={{ display:'flex', gap:6, alignItems:'center', flexWrap:'wrap' }}>
+                    {[{id:true,label:'RANK'},{id:false,label:'CUSTOM'}].map(opt => {
+                      const active = v2UseRankColor === opt.id;
+                      return (
+                        <button key={String(opt.id)} onClick={() => setV2UseRankColor(opt.id)}
+                          style={{ ...mono, fontSize:8, padding:'5px 10px',
+                            background: active ? accentColor+'1a' : '#111',
+                            border:`1px solid ${active ? accentColor : '#222'}`,
+                            color: active ? accentColor : '#555',
+                            cursor:'pointer', letterSpacing:'.06em', transition:'all .12s' }}>
+                          {opt.label}
+                        </button>
+                      );
+                    })}
+                    {!v2UseRankColor && (
+                      <>
+                        <div style={{ position:'relative', width:22, height:22, flexShrink:0 }}>
+                          <div style={{ position:'absolute', inset:0, background:v2CustomColor, border:'1px solid #333', borderRadius:2 }}/>
+                          <input type="color" value={v2CustomColor} onChange={e => setV2CustomColor(e.target.value)}
+                            style={{ position:'absolute', inset:0, opacity:0, width:'100%', height:'100%', cursor:'pointer' }}/>
+                        </div>
+                        <input type="text" value={v2CustomColor} onChange={e => setV2CustomColor(e.target.value)}
+                          style={{ ...mono, background:'#111', border:'1px solid #222', color:'#ddd',
+                            fontSize:9, width:72, padding:'3px 6px' }}/>
+                      </>
+                    )}
+                  </div>
+                </div>
+
+                {/* Rank title toggle */}
+                <div>
+                  <div style={{ ...mono, fontSize:7, color:'#444', letterSpacing:'.12em', marginBottom:5 }}>RANK TITLE</div>
+                  <div style={{ display:'flex', gap:4, alignItems:'center' }}>
+                    {[{id:true,label:'SHOW'},{id:false,label:'HIDE'}].map(opt => {
+                      const active = v2ShowRank === opt.id;
+                      return (
+                        <button key={String(opt.id)} onClick={() => setV2ShowRank(opt.id)}
+                          style={{ ...mono, fontSize:8, padding:'5px 10px',
+                            background: active ? accentColor+'1a' : '#111',
+                            border:`1px solid ${active ? accentColor : '#222'}`,
+                            color: active ? accentColor : '#555',
+                            cursor:'pointer', letterSpacing:'.06em', transition:'all .12s' }}>
+                          {opt.label}
+                        </button>
+                      );
+                    })}
+                    {!v2ShowRank && (
+                      <span style={{ ...mono, fontSize:8, color:'#444' }}>· username takes band</span>
+                    )}
+                  </div>
+                </div>
+
+                {/* Second field — only when rank hidden */}
+                {!v2ShowRank && (
+                  <div>
+                    <div style={{ ...mono, fontSize:7, color:'#444', letterSpacing:'.12em', marginBottom:5 }}>
+                      SECOND FIELD
+                      <label style={{ marginLeft:8, cursor:'pointer', display:'inline-flex', alignItems:'center', gap:4 }}>
+                        <input type="checkbox" checked={v2ShowSecond} onChange={e => setV2ShowSecond(e.target.checked)}
+                          style={{ accentColor, cursor:'pointer' }}/>
+                        <span style={{ ...mono, fontSize:7, color: v2ShowSecond ? accentColor : '#444' }}>
+                          {v2ShowSecond ? 'ON' : 'OFF'}
+                        </span>
+                      </label>
+                    </div>
+                    {v2ShowSecond && (
+                      <input value={v2SecondField} onChange={e => setV2SecondField(e.target.value)}
+                        placeholder="referral link, quote…" maxLength={60}
+                        style={{ width:'100%', background:'#111', border:'1px solid #222', color:'#aaa',
+                          ...mono, fontSize:9, padding:'5px 8px', boxSizing:'border-box' }}/>
+                    )}
+                  </div>
+                )}
+
+                {/* Background image */}
+                <div>
+                  <div style={{ ...mono, fontSize:7, color:'#444', letterSpacing:'.12em', marginBottom:5 }}>BG IMAGE</div>
+                  <div style={{ display:'flex', gap:6, alignItems:'center' }}>
+                    <label style={{ ...mono, fontSize:8, color: v2BgImage ? accentColor : '#555',
+                      cursor:'pointer', border:`1px dashed ${v2BgImage ? accentColor+'88' : '#333'}`,
+                      padding:'4px 10px', transition:'all .12s', whiteSpace:'nowrap' }}>
+                      {v2BgImage ? '↑ REPLACE' : '↑ UPLOAD'}
+                      <input type="file" accept="image/*" style={{ display:'none' }}
+                        onChange={e => {
+                          const file = e.target.files?.[0]; if (!file) return;
+                          if (file.size > 4*1024*1024) { alert('Max 4 MB'); return; }
+                          const reader = new FileReader();
+                          reader.onload = ev => {
+                            setV2BgImage(ev.target.result);
+                            setV2BgTx({ x:0, y:0, scale:1, rotate:0 });
+                            setV2UseRankColor(false);
+                          };
+                          reader.readAsDataURL(file);
+                          e.target.value = '';
+                        }}/>
+                    </label>
+                    {v2BgImage && (<>
+                      <button onClick={() => { setV2BgImage(null); setV2BgTx({ x:0, y:0, scale:1, rotate:0 }); setV2BgDarken(40); }}
+                        style={{ ...mono, fontSize:8, color:'#ff4444', background:'none',
+                          border:'1px solid #ff003333', cursor:'pointer', padding:'4px 8px' }}>✕</button>
+                      <button onClick={() => setV2BgTx({ x:0, y:0, scale:1, rotate:0 })}
+                        style={{ ...mono, fontSize:8, color:'#555', background:'none',
+                          border:'1px solid #333', cursor:'pointer', padding:'4px 8px' }}>↺</button>
+                    </>)}
+                  </div>
+                  {v2BgImage && (
+                    <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:'5px 12px', marginTop:6 }}>
+                      {[
+                        { key:'darken', label:'DARKEN',  min:0,   max:100, step:1    },
+                        { key:'scale',  label:'ZOOM',    min:0.3, max:4,   step:0.05 },
+                        { key:'x',      label:'X',       min:-170,max:170, step:2    },
+                        { key:'y',      label:'Y',       min:-245,max:245, step:2    },
+                        { key:'rotate', label:'ROTATE',  min:0,   max:360, step:1    },
+                      ].map(({ key, label, min, max, step }) => {
+                        const val = key==='darken' ? v2BgDarken : (v2BgTx[key] ?? (key==='scale'?1:0));
+                        const disp = key==='rotate' ? `${val}°` : key==='scale' ? `${(+val).toFixed(2)}×` : key==='darken' ? `${val}%` : val;
+                        return (
+                          <div key={key}>
+                            <div style={{ ...mono, fontSize:7, color:'#444', marginBottom:2 }}>
+                              {label} <span style={{ color:accentColor }}>{disp}</span>
+                            </div>
+                            <input type="range" min={min} max={max} step={step} value={val}
+                              onChange={e => key==='darken'
+                                ? setV2BgDarken(+e.target.value)
+                                : setV2BgTx(prev => ({ ...prev, [key]: +e.target.value }))}
+                              style={{ width:'100%', accentColor, display:'block' }}/>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+
               </div>
             )}
           </div>
 
-          {/* Row 3 (V2 only): text alignment */}
-          {useV2Design && (
-            <div style={{ display:'flex', gap:16, alignItems:'flex-start' }}>
-              <div style={{ flexShrink:0 }}>
-                <div style={{ ...mono, fontSize:7, color:'#444', letterSpacing:'.12em', marginBottom:5 }}>TEXT ALIGN</div>
-                <div style={{ display:'flex', gap:4 }}>
-                  {[
-                    { id:'left',   label:'◂ LEFT'   },
-                    { id:'center', label:'● CENTER' },
-                    { id:'right',  label:'RIGHT ▸'  },
-                  ].map(opt => {
-                    const active = v2TextAlign === opt.id;
-                    return (
-                      <button key={opt.id} onClick={() => {
-                        setV2TextAlign(opt.id);
-                        setSetting('cardV2TextAlign', opt.id);
-                      }}
-                        style={{ ...mono, fontSize:8, padding:'5px 10px',
-                          background: active ? accentColor+'1a' : '#111',
-                          border:`1px solid ${active ? accentColor : '#222'}`,
-                          color: active ? accentColor : '#555',
-                          cursor:'pointer', letterSpacing:'.06em', transition:'all .12s' }}>
-                        {opt.label}
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
-            </div>
-          )}
-
-          {/* Row 4 (V2 only): accent color, rank title, second field */}
-          {useV2Design && (
-            <div style={{ display:'flex', flexDirection:'column', gap:10 }}>
-
-            {/* Accent color override */}
-            <div style={{ display:'flex', gap:12, alignItems:'center', flexWrap:'wrap' }}>
-              <div style={{ flexShrink:0 }}>
-                <div style={{ ...mono, fontSize:7, color:'#444', letterSpacing:'.12em', marginBottom:5 }}>ACCENT</div>
-                <div style={{ display:'flex', gap:4 }}>
-                  {[{id:true,label:'RANK'},{id:false,label:'CUSTOM'}].map(opt => {
-                    const active = v2UseRankColor === opt.id;
-                    return (
-                      <button key={String(opt.id)} onClick={() => setV2UseRankColor(opt.id)}
-                        style={{ ...mono, fontSize:8, padding:'5px 10px',
-                          background: active ? accentColor+'1a' : '#111',
-                          border:`1px solid ${active ? accentColor : '#222'}`,
-                          color: active ? accentColor : '#555',
-                          cursor:'pointer', letterSpacing:'.06em', transition:'all .12s' }}>
-                        {opt.label}
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
-              {!v2UseRankColor && (
-                <div style={{ display:'flex', alignItems:'center', gap:6 }}>
-                  <div style={{ position:'relative', width:22, height:22, flexShrink:0 }}>
-                    <div style={{ position:'absolute', inset:0, background:v2CustomColor,
-                      border:'1px solid #333', borderRadius:2 }}/>
-                    <input type="color" value={v2CustomColor} onChange={e => setV2CustomColor(e.target.value)}
-                      style={{ position:'absolute', inset:0, opacity:0, width:'100%', height:'100%', cursor:'pointer' }}/>
-                  </div>
-                  <input type="text" value={v2CustomColor}
-                    onChange={e => setV2CustomColor(e.target.value)}
-                    style={{ ...mono, background:'#111', border:'1px solid #222', color:'#ddd',
-                      fontSize:9, width:80, padding:'3px 6px' }}/>
-                </div>
-              )}
-            </div>
-
-            {/* Show rank title / username placement */}
-            <div style={{ display:'flex', gap:12, alignItems:'flex-start', flexWrap:'wrap' }}>
-              <div style={{ flexShrink:0 }}>
-                <div style={{ ...mono, fontSize:7, color:'#444', letterSpacing:'.12em', marginBottom:5 }}>RANK TITLE</div>
-                <div style={{ display:'flex', gap:4 }}>
-                  {[{id:true,label:'SHOW'},{id:false,label:'HIDE'}].map(opt => {
-                    const active = v2ShowRank === opt.id;
-                    return (
-                      <button key={String(opt.id)} onClick={() => setV2ShowRank(opt.id)}
-                        style={{ ...mono, fontSize:8, padding:'5px 10px',
-                          background: active ? accentColor+'1a' : '#111',
-                          border:`1px solid ${active ? accentColor : '#222'}`,
-                          color: active ? accentColor : '#555',
-                          cursor:'pointer', letterSpacing:'.06em', transition:'all .12s' }}>
-                        {opt.label}
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
-              {/* Second field — only when rank hidden, username takes band */}
-              {!v2ShowRank && (
-                <div style={{ flex:1, minWidth:180 }}>
-                  <div style={{ ...mono, fontSize:7, color:'#444', letterSpacing:'.12em', marginBottom:5 }}>
-                    SECOND FIELD (below username)
-                    <label style={{ marginLeft:8, cursor:'pointer', display:'inline-flex', alignItems:'center', gap:4 }}>
-                      <input type="checkbox" checked={v2ShowSecond}
-                        onChange={e => setV2ShowSecond(e.target.checked)}
-                        style={{ accentColor, cursor:'pointer' }}/>
-                      <span style={{ ...mono, fontSize:7, color: v2ShowSecond ? accentColor : '#444' }}>
-                        {v2ShowSecond ? 'ON' : 'OFF'}
-                      </span>
-                    </label>
-                  </div>
-                  {v2ShowSecond && (
-                    <input value={v2SecondField} onChange={e => setV2SecondField(e.target.value)}
-                      placeholder="referral link, quote, etc."
-                      maxLength={60}
-                      style={{ width:'100%', background:'#111', border:'1px solid #222', color:'#aaa',
-                        ...mono, fontSize:9, padding:'5px 8px', boxSizing:'border-box' }}/>
-                  )}
-                </div>
-              )}
-            </div>
-
-            </div>
-          )}
-
-          {/* Row 5 (V2 only): background image upload + transform */}
-          {useV2Design && (
-            <div style={{ display:'flex', flexDirection:'column', gap:8 }}>
-              <div style={{ display:'flex', gap:8, alignItems:'center' }}>
-                <div style={{ ...mono, fontSize:7, color:'#444', letterSpacing:'.12em', flexShrink:0 }}>BG IMAGE</div>
-                <label style={{ ...mono, fontSize:8, color: v2BgImage ? accentColor : '#555',
-                  cursor:'pointer', border:`1px dashed ${v2BgImage ? accentColor+'88' : '#333'}`,
-                  padding:'4px 10px', transition:'all .12s' }}>
-                  {v2BgImage ? '↑ REPLACE' : '↑ UPLOAD'}
-                  <input type="file" accept="image/*" style={{ display:'none' }}
-                    onChange={e => {
-                      const file = e.target.files?.[0]; if (!file) return;
-                      if (file.size > 4*1024*1024) { alert('Max 4 MB'); return; }
-                      const reader = new FileReader();
-                      reader.onload = ev => {
-                        setV2BgImage(ev.target.result);
-                        setV2BgTx({ x:0, y:0, scale:1, rotate:0 });
-                        // Auto-switch to custom color when image is set (but not locked)
-                        setV2UseRankColor(false);
-                      };
-                      reader.readAsDataURL(file);
-                      e.target.value = '';
-                    }}/>
-                </label>
-                {v2BgImage && (
-                  <button onClick={() => { setV2BgImage(null); setV2BgTx({ x:0, y:0, scale:1, rotate:0 }); }}
-                    style={{ ...mono, fontSize:8, color:'#ff4444', background:'none',
-                      border:'1px solid #ff003333', cursor:'pointer', padding:'4px 8px' }}>✕ CLEAR</button>
-                )}
-                {v2BgImage && (
-                  <button onClick={() => setV2BgTx({ x:0, y:0, scale:1, rotate:0 })}
-                    style={{ ...mono, fontSize:8, color:'#555', background:'none',
-                      border:`1px solid #333`, cursor:'pointer', padding:'4px 8px' }}>↺ RESET</button>
-                )}
-              </div>
-              {/* Transform sliders — only shown when image is set */}
-              {v2BgImage && (
-                <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:'6px 16px' }}>
-                  {[
-                    { key:'x',      label:'X OFFSET',  min:-170, max:170, step:2  },
-                    { key:'y',      label:'Y OFFSET',  min:-245, max:245, step:2  },
-                    { key:'scale',  label:'ZOOM',      min:0.3,  max:4,   step:0.05 },
-                    { key:'rotate', label:'ROTATE',    min:0,    max:360, step:1  },
-                  ].map(({ key, label, min, max, step }) => (
-                    <div key={key}>
-                      <div style={{ ...mono, fontSize:7, color:'#444', letterSpacing:'.1em', marginBottom:3 }}>
-                        {label} <span style={{ color:accentColor }}>{key==='rotate'
-                          ? `${v2BgTx.rotate}°`
-                          : key==='scale'
-                            ? `${v2BgTx.scale.toFixed(2)}×`
-                            : v2BgTx[key]}</span>
-                      </div>
-                      <input type="range" min={min} max={max} step={step}
-                        value={v2BgTx[key] ?? (key==='scale'?1:0)}
-                        onChange={e => setV2BgTx(prev => ({ ...prev, [key]: +e.target.value }))}
-                        style={{ width:'100%', accentColor, display:'block' }}/>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-          )}
-
           {/* Action buttons */}
-          <div style={{ display:'flex', gap:8, justifyContent:'flex-end' }}>
+          <div style={{ display:'flex', gap:8, justifyContent:'flex-end', borderTop:'1px solid #1a1a1a', paddingTop:12 }}>
             <button onClick={doCopy} disabled={!!capturing}
               style={{ ...mono, background:'none', border:`1px solid ${accentColor}55`,
                 color:accentColor, cursor:'pointer', padding:'8px 18px', fontSize:9,
@@ -5907,16 +5910,10 @@ function ShareModal({ S, setSetting, pnlCurve, closed, totalPnl, winRate, tf, wa
                 letterSpacing:'.1em', boxShadow:`0 0 12px ${accentColor}22`,
                 opacity:capturing?0.5:1, transition:'opacity .15s', fontWeight:700 }}>
               {capturing==='download' ? 'RENDERING…' : '↓ DOWNLOAD PNG'}
-
             </button>
           </div>
         </div>
         </div>{/* end main content */}
-      </div>
-    </div>
-  );
-}
-
 function ResetMyDataButton({ S, workerUrl, appSecret }) {
   const [phase, setPhase] = useState("idle"); // idle | confirm | wiping | done | error
   const [errMsg, setErrMsg] = useState("");
