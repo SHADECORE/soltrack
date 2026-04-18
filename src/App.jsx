@@ -3979,19 +3979,19 @@ function AdminPanel({ S, setSetting }) {
 
                 {/* ── IDENTITY ── */}
                 <Sec title="IDENTITY"/>
-                <V2Row label="Name">
+                <V2AdminRow label="Name">
                   <input value={previewR.name} onClick={e => e.stopPropagation()}
                     onChange={e => updateRank(origIdx,'name',e.target.value.toUpperCase())}
                     style={{ ...mono, background:'#111', border:`1px solid ${border}`, color:'#fff',
                       padding:'3px 7px', fontSize:10, fontWeight:700, flex:1 }}/>
-                </V2Row>
-                <V2Row label="Min SOL threshold">
+                </V2AdminRow>
+                <V2AdminRow label="Min SOL threshold">
                   <input type="number" value={previewR.min===-Infinity?'':previewR.min}
                     placeholder="-∞ (REKT)" disabled={previewR.min===-Infinity}
                     onChange={e => updateRank(origIdx,'min',parseFloat(e.target.value)||0)}
                     style={{ ...mono, background:'#111', border:`1px solid ${border}`, color:dim,
                       padding:'3px 5px', fontSize:10, flex:1, opacity:previewR.min===-Infinity?0.4:1 }}/>
-                </V2Row>
+                </V2AdminRow>
                 <RCol label="Accent color" field="color"/>
                 <RCol label="Gradient top (G1)" field="g1"/>
                 <RCol label="Gradient bottom (G2)" field="g2"/>
@@ -4042,8 +4042,8 @@ function AdminPanel({ S, setSetting }) {
                     <button key={c} onClick={() => setAdminPreviewCur(c)}
                       style={{ ...mono, fontSize:8, padding:'3px 8px',
                         background: adminPreviewCur===c ? green+'22' : 'none',
-                        border:`1px solid ${previewCur===c ? green : border}`,
-                        color: previewCur===c ? green : dim,
+                        border:`1px solid ${adminPreviewCur===c ? green : border}`,
+                        color: adminPreviewCur===c ? green : dim,
                         cursor:'pointer', letterSpacing:'.06em' }}>{c}</button>
                   ))}
                 </div>
