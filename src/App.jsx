@@ -3056,6 +3056,110 @@ function Onboarding({ S, workerUrl: workerUrlProp, onComplete, relogin = false }
 // ── ADMIN PANEL ───────────────────────────────────────────────────────────────
 // ── DEFAULT_CARD_V2: global V2 layout/style settings ─────────────────────────
 // Stored in S.defaultCardV2. Keys use v2_ prefix — no conflict with rank.card V1 fields.
+
+// ── ColorField: persistent inline color picker usable anywhere in admin ────────
+// Uses a controlled text input + native color swatch. Does NOT use key= on the
+// text input, so it never remounts and never loses focus mid-edit.
+function ColorField({ value, onChange, style }) {
+  const safeHex = v => {
+    if (!v) return '#000000';
+    const m6 = v.match(/^#[0-9a-fA-F]{6}$/i);
+    if (m6) return v.toLowerCase();
+    const m3 = v.match(/^#([0-9a-fA-F]{3})$/i);
+    if (m3) return '#'+m3[1][0]+m3[1][0]+m3[1][1]+m3[1][1]+m3[1][2]+m3[1][2];
+    const rgba = v.match(/rgba?\s*\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)/i);
+    if (rgba) return '#'+[rgba[1],rgba[2],rgba[3]].map(n=>parseInt(n).toString(16).padStart(2,'0')).join('');
+    return '#000000';
+  };
+  const [text, setText] = React.useState(value ?? '#000000');
+  // Sync external value changes into local text (e.g. after reset)
+  React.useEffect(() => { setText(value ?? '#000000'); }, [value]);
+  const commit = (raw) => {
+    const v = raw.trim();
+    if (/^#[0-9a-fA-F]{3,8}$/i.test(v) || /^rgba?\s*\(/i.test(v)) onChange(v);
+  };
+  const border = '#262626';
+  return (
+    <div style={{ display:'flex', alignItems:'center', gap:5, ...style }}>
+      <div style={{ position:'relative', width:24, height:24, flexShrink:0 }}>
+        <div style={{ position:'absolute', inset:0, background:value, border:`1px solid ${border}`, borderRadius:2 }}/>
+        <input type="color" value={safeHex(value)}
+          onChange={e => { setText(e.target.value); onChange(e.target.value); }}
+          style={{ position:'absolute', inset:0, opacity:0, width:'100%', height:'100%', cursor:'pointer' }}/>
+      </div>
+      <input type="text" value={text}
+        onChange={e => { setText(e.target.value); commit(e.target.value); }}
+        onBlur={e => commit(e.target.value)}
+        onKeyDown={e => { if (e.key==='Enter') commit(e.target.value); }}
+        spellCheck={false}
+        style={{ fontFamily:"'DM Mono',monospace", background:'#111', border:`1px solid ${border}`,
+          color:'#ddd', fontSize:9, flex:1, padding:'3px 6px', minWidth:0 }}/>
+    </div>
+  );
+}
+
+// ── Hoisted V2 admin helpers — defined OUTSIDE AdminPanel so they are stable ──
+// React component identity is based on the function reference. If these were
+// defined inside the IIFE they would be new references on every render, causing
+// React to unmount+remount the entire subtree on every state change → black screen.
+const ADMIN_GREEN  = '#00ff9d';
+const ADMIN_BORDER = '#262626';
+const ADMIN_DIM    = '#919191';
+const ADMIN_MONO   = { fontFamily:"'DM Mono',monospace" };
+
+function V2AdminSec({ title }) {
+  return (
+    <div style={{ ...ADMIN_MONO, fontSize:8, color:ADMIN_GREEN, letterSpacing:'.14em',
+      borderBottom:`1px solid ${ADMIN_GREEN}22`, paddingBottom:4, marginTop:14, marginBottom:8 }}>
+      {title}
+    </div>
+  );
+}
+function V2AdminRow({ label, children }) {
+  return (
+    <div style={{ display:'flex', alignItems:'center', gap:8, marginBottom:6 }}>
+      <span style={{ ...ADMIN_MONO, fontSize:8, color:ADMIN_DIM, minWidth:130, flexShrink:0 }}>{label}</span>
+      {children}
+    </div>
+  );
+}
+function V2AdminSlider({ label, val, min, max, step=1, unit='', onChange }) {
+  const safe = Math.min(max, Math.max(min, +val||0));
+  return (
+    <V2AdminRow label={label}>
+      <input type="range" min={min} max={max} step={step} value={safe}
+        onChange={e => onChange(+e.target.value)}
+        style={{ flex:1, accentColor:ADMIN_GREEN, minWidth:0 }}/>
+      <input type="number" step={step} value={val}
+        onChange={e => { const v=parseFloat(e.target.value); if(!isNaN(v)) onChange(v); }}
+        style={{ ...ADMIN_MONO, background:'#111', border:`1px solid ${ADMIN_BORDER}`,
+          color:'#ccc', fontSize:9, width:52, padding:'2px 4px', textAlign:'right', flexShrink:0 }}/>
+      {unit && <span style={{ ...ADMIN_MONO, fontSize:8, color:'#444', flexShrink:0 }}>{unit}</span>}
+    </V2AdminRow>
+  );
+}
+function V2AdminToggle({ label, checked, onChange }) {
+  return (
+    <V2AdminRow label={label}>
+      <label style={{ cursor:'pointer', display:'flex', alignItems:'center', gap:6 }}>
+        <input type="checkbox" checked={!!checked} onChange={e => onChange(e.target.checked)}
+          style={{ accentColor:ADMIN_GREEN, cursor:'pointer' }}/>
+        <span style={{ ...ADMIN_MONO, fontSize:9, color:checked ? ADMIN_GREEN : ADMIN_DIM }}>
+          {checked ? 'ON' : 'OFF'}
+        </span>
+      </label>
+    </V2AdminRow>
+  );
+}
+function V2AdminColor({ label, value, onChange }) {
+  return (
+    <V2AdminRow label={label}>
+      <ColorField value={value} onChange={onChange} style={{ flex:1 }}/>
+    </V2AdminRow>
+  );
+}
+
+
 // Per-rank visual settings (gradient, accent) stay in rank.card.
 const DEFAULT_CARD_V2 = {
   v2S1Max:          72,    // max PnL font size (binary-searched down if needed)
@@ -3825,83 +3929,21 @@ function AdminPanel({ S, setSetting }) {
           const c        = { ...DEFAULT_CARD, ...(previewR.card ?? {}) };
           const updateCard = (k, v) => updateRank(origIdx, 'card', { ...c, [k]: v });
 
-          // ── UI helpers (defined inside IIFE — no hooks) ──────────────
-          const V2Sec = ({ title }) => (
-            <div style={{ ...mono, fontSize:8, color:green, letterSpacing:'.14em',
-              borderBottom:`1px solid ${green}22`, paddingBottom:4, marginTop:14, marginBottom:8 }}>
-              {title}</div>
-          );
-          const V2Row = ({ label, children }) => (
-            <div style={{ display:'flex', alignItems:'center', gap:8, marginBottom:6 }}>
-              <span style={{ ...mono, fontSize:8, color:dim, minWidth:130, flexShrink:0 }}>{label}</span>
-              {children}
-            </div>
-          );
-          const V2Slider = ({ label, k, min, max, step=1, unit='' }) => {
-            const val = c[k] ?? DEFAULT_CARD[k] ?? min;
-            return (
-              <V2Row label={label}>
-                <input type="range" min={min} max={max} step={step}
-                  value={Math.min(max,Math.max(min,+val||0))}
-                  onChange={e => updateCard(k, +e.target.value)}
-                  style={{ flex:1, accentColor:green, minWidth:0 }}/>
-                <input type="number" step={step} value={val}
-                  onChange={e => { const v=parseFloat(e.target.value); if(!isNaN(v)) updateCard(k,v); }}
-                  style={{ ...mono, background:'#111', border:`1px solid ${border}`,
-                    color:'#ccc', fontSize:9, width:52, padding:'2px 4px', textAlign:'right', flexShrink:0 }}/>
-                {unit && <span style={{ ...mono, fontSize:8, color:'#444', flexShrink:0 }}>{unit}</span>}
-              </V2Row>
-            );
-          };
-          const V2Toggle = ({ label, k }) => (
-            <V2Row label={label}>
-              <label style={{ cursor:'pointer', display:'flex', alignItems:'center', gap:6 }}>
-                <input type="checkbox" checked={!!(c[k] ?? DEFAULT_CARD[k])}
-                  onChange={e => updateCard(k, e.target.checked)}
-                  style={{ accentColor:green, cursor:'pointer' }}/>
-                <span style={{ ...mono, fontSize:9, color:(c[k]??DEFAULT_CARD[k]) ? green : dim }}>
-                  {(c[k]??DEFAULT_CARD[k]) ? 'ON' : 'OFF'}
-                </span>
-              </label>
-            </V2Row>
-          );
-          const V2Color = ({ label, k }) => {
-            const val = c[k] ?? DEFAULT_CARD[k] ?? '#000000';
-            const toHex = v => v?.match(/^#[0-9a-fA-F]{6}$/i) ? v : '#000000';
-            return (
-              <V2Row label={label}>
-                <div style={{ position:'relative', width:22, height:22, flexShrink:0 }}>
-                  <div style={{ position:'absolute', inset:0, background:val, border:`1px solid ${border}`, borderRadius:2 }}/>
-                  <input type="color" value={toHex(val)} onChange={e => updateCard(k, e.target.value)}
-                    style={{ position:'absolute', inset:0, opacity:0, width:'100%', height:'100%', cursor:'pointer' }}/>
-                </div>
-                <input type="text" key={val} defaultValue={val}
-                  onBlur={e => updateCard(k, e.target.value.trim())}
-                  onKeyDown={e => { if(e.key==='Enter') updateCard(k, e.target.value.trim()); }}
-                  style={{ ...mono, background:'#111', border:`1px solid ${border}`,
-                    color:'#ddd', fontSize:9, flex:1, padding:'3px 6px' }}/>
-              </V2Row>
-            );
-          };
-          // Inline color picker for rank-level fields (not card subobj)
-          const RankColor = ({ label, field }) => {
-            const val = previewR[field] ?? '#000000';
-            const toHex = v => v?.match(/^#[0-9a-fA-F]{6}$/i) ? v : '#000000';
-            return (
-              <V2Row label={label}>
-                <div style={{ position:'relative', width:22, height:22, flexShrink:0 }}>
-                  <div style={{ position:'absolute', inset:0, background:val, border:`1px solid ${border}`, borderRadius:2 }}/>
-                  <input type="color" value={toHex(val)} onChange={e => updateRank(origIdx, field, e.target.value)}
-                    style={{ position:'absolute', inset:0, opacity:0, width:'100%', height:'100%', cursor:'pointer' }}/>
-                </div>
-                <input type="text" key={val} defaultValue={val}
-                  onBlur={e => updateRank(origIdx, field, e.target.value.trim())}
-                  onKeyDown={e => { if(e.key==='Enter') updateRank(origIdx, field, e.target.value.trim()); }}
-                  style={{ ...mono, background:'#111', border:`1px solid ${border}`,
-                    color:'#ddd', fontSize:9, flex:1, padding:'3px 6px' }}/>
-              </V2Row>
-            );
-          };
+          // ── Use hoisted V2Admin* components (stable refs, no black screen) ──
+          // Thin wrappers passing c/updateCard/updateRank as closures to the props
+          const Sec  = ({title}) => <V2AdminSec title={title}/>;
+          const Sl   = ({label, k, min, max, step=1, unit=''}) =>
+            <V2AdminSlider label={label} min={min} max={max} step={step} unit={unit}
+              val={c[k] ?? DEFAULT_CARD[k] ?? min} onChange={v => updateCard(k, v)}/>;
+          const Tog  = ({label, k}) =>
+            <V2AdminToggle label={label} checked={!!(c[k] ?? DEFAULT_CARD[k])}
+              onChange={v => updateCard(k, v)}/>;
+          const Col  = ({label, k}) =>
+            <V2AdminColor label={label} value={c[k] ?? DEFAULT_CARD[k] ?? '#000000'}
+              onChange={v => updateCard(k, v)}/>;
+          const RCol = ({label, field}) =>
+            <V2AdminColor label={label} value={previewR[field] ?? '#000000'}
+              onChange={v => updateRank(origIdx, field, v)}/>;
 
           return (
             <div style={{ display:'flex', gap:0, alignItems:'flex-start', minHeight:600 }}>
@@ -3936,7 +3978,7 @@ function AdminPanel({ S, setSetting }) {
                 </div>
 
                 {/* ── IDENTITY ── */}
-                <V2Sec title="IDENTITY"/>
+                <Sec title="IDENTITY"/>
                 <V2Row label="Name">
                   <input value={previewR.name} onClick={e => e.stopPropagation()}
                     onChange={e => updateRank(origIdx,'name',e.target.value.toUpperCase())}
@@ -3950,32 +3992,32 @@ function AdminPanel({ S, setSetting }) {
                     style={{ ...mono, background:'#111', border:`1px solid ${border}`, color:dim,
                       padding:'3px 5px', fontSize:10, flex:1, opacity:previewR.min===-Infinity?0.4:1 }}/>
                 </V2Row>
-                <RankColor label="Accent color" field="color"/>
-                <RankColor label="Gradient top (G1)" field="g1"/>
-                <RankColor label="Gradient bottom (G2)" field="g2"/>
+                <RCol label="Accent color" field="color"/>
+                <RCol label="Gradient top (G1)" field="g1"/>
+                <RCol label="Gradient bottom (G2)" field="g2"/>
 
                 {/* ── ACCENT OVERRIDE ── */}
-                <V2Sec title="ACCENT OVERRIDE"/>
-                <V2Toggle label="Use rank color" k="useRankColor"/>
+                <Sec title="ACCENT OVERRIDE"/>
+                <Tog label="Use rank color" k="useRankColor"/>
                 {!(c.useRankColor ?? DEFAULT_CARD.useRankColor) && (
-                  <V2Color label="Custom color" k="customColor"/>
+                  <Col label="Custom color" k="customColor"/>
                 )}
 
                 {/* ── GRADIENT ── */}
-                <V2Sec title="GRADIENT"/>
-                <V2Slider label="Angle (°)"    k="gradientAngle"  min={0}   max={360} step={5}   unit="°"/>
-                <V2Slider label="G1 opacity"   k="g1Opacity"      min={0}   max={1}   step={0.05}/>
-                <V2Slider label="G1 stop (%)"  k="g1Stop"         min={0}   max={60}  step={1}   unit="%"/>
-                <V2Slider label="Mid stop (%)" k="midStop"        min={10}  max={90}  step={1}   unit="%"/>
-                <V2Color  label="Mid color"    k="midColor"/>
-                <V2Slider label="End stop (%)"      k="endStop"       min={50}  max={100} step={1}   unit="%"/>
-                <V2Color  label="End color"         k="endColor"/>
-                <V2Slider label="G1 stop opac."     k="g1Stop"        min={0}   max={100} step={1}   unit="%"/>
-                <V2Slider label="Gradient opacity"  k="g1Opacity"     min={0}   max={1}   step={0.02}/>
+                <Sec title="GRADIENT"/>
+                <Sl label="Angle (°)"    k="gradientAngle"  min={0}   max={360} step={5}   unit="°"/>
+                <Sl label="G1 opacity"   k="g1Opacity"      min={0}   max={1}   step={0.05}/>
+                <Sl label="G1 stop (%)"  k="g1Stop"         min={0}   max={60}  step={1}   unit="%"/>
+                <Sl label="Mid stop (%)" k="midStop"        min={10}  max={90}  step={1}   unit="%"/>
+                <Col  label="Mid color"    k="midColor"/>
+                <Sl label="End stop (%)"      k="endStop"       min={50}  max={100} step={1}   unit="%"/>
+                <Col  label="End color"         k="endColor"/>
+                <Sl label="G1 stop opac."     k="g1Stop"        min={0}   max={100} step={1}   unit="%"/>
+                <Sl label="Gradient opacity"  k="g1Opacity"     min={0}   max={1}   step={0.02}/>
 
                 {/* ── DISPLAY ── */}
-                <V2Sec title="DISPLAY"/>
-                <V2Toggle label="Show PnL chart" k="showChart"/>
+                <Sec title="DISPLAY"/>
+                <Tog label="Show PnL chart" k="showChart"/>
 
                 <div style={{ height:20 }}/>
               </div>
