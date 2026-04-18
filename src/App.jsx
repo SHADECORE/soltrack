@@ -3876,6 +3876,9 @@ function AdminPanel({ S, setSetting }) {
             );
           };
 
+          const [previewCur, setPreviewCur] = useState('SOL');
+          const PREVIEW_CURS = ['SOL','USD','EUR','PLN','UAH','KZT','GBP'];
+
           return (
             <div style={{ display:'flex', gap:0, alignItems:'flex-start', minHeight:600 }}>
 
@@ -3941,8 +3944,10 @@ function AdminPanel({ S, setSetting }) {
                 <V2Slider label="G1 stop (%)"  k="g1Stop"         min={0}   max={60}  step={1}   unit="%"/>
                 <V2Slider label="Mid stop (%)" k="midStop"        min={10}  max={90}  step={1}   unit="%"/>
                 <V2Color  label="Mid color"    k="midColor"/>
-                <V2Slider label="End stop (%)" k="endStop"        min={50}  max={100} step={1}   unit="%"/>
-                <V2Color  label="End color"    k="endColor"/>
+                <V2Slider label="End stop (%)"      k="endStop"       min={50}  max={100} step={1}   unit="%"/>
+                <V2Color  label="End color"         k="endColor"/>
+                <V2Slider label="G1 stop opac."     k="g1Stop"        min={0}   max={100} step={1}   unit="%"/>
+                <V2Slider label="Gradient opacity"  k="g1Opacity"     min={0}   max={1}   step={0.02}/>
 
                 {/* ── DISPLAY ── */}
                 <V2Sec title="DISPLAY"/>
@@ -3956,13 +3961,25 @@ function AdminPanel({ S, setSetting }) {
                 paddingLeft:28, paddingTop:4, gap:14, position:'sticky', top:0 }}>
                 <div style={{ ...mono, fontSize:8, color:dim, letterSpacing:'.12em' }}>LIVE PREVIEW · NEW DESIGN</div>
                 <div style={{ transform:'scale(0.82)', transformOrigin:'top center', marginBottom:-80 }}>
-                  <ShareCardInnerV2 S={S} pnlCurve={[]} closed={[]}
+                  <ShareCardInnerV2
+                    S={{ ...S, currency: previewCur }}
+                    pnlCurve={[]} closed={[]}
                     totalPnl={previewR.min === -Infinity ? -1.5 : (previewR.min ?? 0) + 0.5}
                     winRate="58.0" tf="ALL" walletLabel={previewR.name} _overrideRank={previewR}/>
                 </div>
                 <div style={{ ...mono, fontSize:8, color:dim, letterSpacing:'.08em', textAlign:'center', marginTop:4 }}>
                   · Changes saved with <span style={{ color:'#fff' }}>SAVE</span> button ·<br/>
                   · Border, divider, text sizes → Card V2 tab ·
+                </div>
+                <div style={{ marginTop:10, display:'flex', gap:4, flexWrap:'wrap', justifyContent:'center' }}>
+                  {PREVIEW_CURS.map(c => (
+                    <button key={c} onClick={() => setPreviewCur(c)}
+                      style={{ ...mono, fontSize:8, padding:'3px 8px',
+                        background: previewCur===c ? green+'22' : 'none',
+                        border:`1px solid ${previewCur===c ? green : border}`,
+                        color: previewCur===c ? green : dim,
+                        cursor:'pointer', letterSpacing:'.06em' }}>{c}</button>
+                  ))}
                 </div>
               </div>
             </div>
@@ -4118,7 +4135,7 @@ function AdminPanel({ S, setSetting }) {
                 <div style={{ ...mono, fontSize:8, color:green, letterSpacing:".14em" }}>LIVE PREVIEW</div>
                 <div style={{ transform:"scale(0.72)", transformOrigin:"top left", height:354, width:245 }}>
                   <ShareCardInnerV2
-                    S={{ ...S, defaultCardV2: dc }}
+                    S={{ ...S, defaultCardV2: dc, currency: gcv('previewCurrency') ?? 'SOL' }}
                     pnlCurve={sampleCurve} closed={sampleClosed}
                     totalPnl={previewPnl} winRate="66.67" tf="ALL"
                     walletLabel="PREVIEW"/>
@@ -4130,6 +4147,19 @@ function AdminPanel({ S, setSetting }) {
                     color:"#fff", ...mono, fontSize:11, padding:"5px 8px", boxSizing:"border-box" }}/>
                 <div style={{ ...mono, fontSize:8, color:dim, lineHeight:1.6, opacity:0.6, maxWidth:180 }}>
                   Change to preview different PnL magnitudes and see font-size scaling.
+                </div>
+                <div style={{ ...mono, fontSize:8, color:dim, marginTop:8, marginBottom:4 }}>PREVIEW CURRENCY</div>
+                <div style={{ display:'flex', gap:3, flexWrap:'wrap' }}>
+                  {['SOL','USD','EUR','PLN','UAH','KZT','GBP'].map(c => {
+                    const cur = gcv('previewCurrency') ?? 'SOL';
+                    return (
+                      <button key={c} onClick={() => setDC('previewCurrency', c)}
+                        style={{ ...mono, fontSize:8, padding:'3px 7px',
+                          background: cur===c ? green+'22' : '#0a0a0a',
+                          border:`1px solid ${cur===c ? green : border}`,
+                          color: cur===c ? green : dim, cursor:'pointer' }}>{c}</button>
+                    );
+                  })}
                 </div>
               </div>
             </div>
@@ -5038,21 +5068,44 @@ function ShareCardInnerV2({ S, pnlCurve, closed, totalPnl, winRate, tf, walletLa
   const showChart  = rc.showChart ?? true;
   const ticket     = notchStyle === 'triangle' ? V2_TRI : V2_SEMI;
 
-  const col      = (rc.useRankColor ?? true) ? rank.color : (rc.customColor ?? '#ffffff');
+  // User color override (from ShareModal) takes priority over rank admin setting
+  const _useRankColor = S.cardV2UseRankColor ?? (rc.useRankColor ?? true);
+  const _customColor  = S.cardV2CustomColor  ?? (rc.customColor  ?? '#ffffff');
+  const col      = _useRankColor ? rank.color : _customColor;
+  // User show-rank and second-field options
+  const showRank    = S.cardV2ShowRank    !== false;  // default true
+  const secondField = S.cardV2SecondField ?? null;    // string or null
   const isPos    = totalPnl >= 0;
   const pnlColor = isPos ? col : '#ff3355';
 
   const _cur = S?.currency ?? 'SOL';
   const _raw = solToDisplay(totalPnl, _cur) ?? totalPnl;
+  const isSolCur = !_cur || _cur === 'SOL' || _raw === null || _raw === totalPnl;
+  // currencySymbol: used as text prefix when NOT SOL (logo handles SOL case)
+  const currencySymbol = isSolCur ? null : (CURRENCY_SYMBOLS[_cur] ?? (_cur + ' '));
+  // displayStr: for SOL → number only (logo is shown separately)
+  //             for other → symbol + number (logo hidden, symbol shown)
   const displayStr = (() => {
-    const sign = totalPnl < 0 ? '-' : '+';
-    if (cardPnlCompact && Math.abs(_raw) >= 1000) {
-      const k = (Math.abs(_raw)/1000).toFixed(1);
-      const sym = _cur !== 'SOL' ? (CURRENCY_SYMBOLS[_cur] ?? _cur+' ') : '';
-      return sign + sym + k + 'k';
+    const val   = isSolCur ? totalPnl : (_raw ?? totalPnl);
+    const sign  = val < 0 ? '-' : '+';
+    const absV  = Math.abs(val);
+    const isCompactable = cardPnlCompact && absV >= 1000;
+    if (isCompactable) {
+      const k = (absV/1000).toFixed(1);
+      return sign + (currencySymbol ?? '') + k + 'k';
     }
-    return fmtC(totalPnl, S, 2);
+    const decimals = isSolCur ? 2 : (CURRENCY_DECIMALS?.[_cur] ?? 2);
+    return sign + (currencySymbol ?? '') + fmt(absV, decimals);
   })();
+  // volDisplay: format a SOL amount for volume display (no sign)
+  const volFmt = (solAmt, dec=1) => {
+    const val    = isSolCur ? solAmt : (solToDisplay(solAmt, _cur) ?? solAmt);
+    const absV   = Math.abs(val);
+    const isComp = cardPnlCompact && absV >= 1000;
+    if (isComp) return (currencySymbol ?? '') + (absV/1000).toFixed(1) + 'k';
+    const decimals = isSolCur ? dec : (CURRENCY_DECIMALS?.[_cur] ?? 2);
+    return (currencySymbol ?? '') + fmt(absV, decimals);
+  };
 
   const totalSolIn  = closed.reduce((s,x) => s + (x.solIn  || 0), 0);
   const totalSolOut = closed.reduce((s,x) => s + (x.solOut || 0), 0);
@@ -5253,24 +5306,30 @@ function ShareCardInnerV2({ S, pnlCurve, closed, totalPnl, winRate, tf, walletLa
       <polyline points={`${V2_BR_X-BLEN},${V2_BB_Y} ${V2_BR_X},${V2_BB_Y} ${V2_BR_X},${V2_BB_Y-BLEN}`}
         fill="none" stroke={col} strokeWidth="1" opacity={BOPAC}/>
 
-      {/* Rank name */}
+      {/* Rank name (or username if rank hidden) */}
       <text x={TX} y="33" textAnchor={TA}
         fontFamily={fOrb} fontWeight="900" fontSize={S2}
         fill={col} letterSpacing="2"
-        style={{ filter:`drop-shadow(0 0 8px ${col}44)` }}>{rank.name}</text>
+        style={{ filter:`drop-shadow(0 0 8px ${col}44)` }}>
+        {showRank ? rank.name : walletLabel}
+      </text>
 
       {/* Timeframe */}
       <text x={L.tfX} y={L.tfY} textAnchor={TA}
         fontFamily={fOrb} fontSize={S3}
         fill="rgba(255,255,255,0.62)" letterSpacing="2">{tf || 'ALL TIME'}</text>
 
-      {/* PnL unit */}
-      <g transform={`translate(${L.logoX.toFixed(1)},${L.logoTop.toFixed(1)}) scale(${L.lScl.toFixed(4)})`}
-        fill={pnlColor} style={{ filter:`drop-shadow(0 0 12px ${pnlColor}44)` }}>
-        <path d={V2_LOGO_PATH}/>
-      </g>
+      {/* PnL unit: SOL→logo+number, other→text-symbol+number */}
+      {isSolCur ? (
+        <g transform={`translate(${L.logoX.toFixed(1)},${L.logoTop.toFixed(1)}) scale(${L.lScl.toFixed(4)})`}
+          fill={pnlColor} style={{ filter:`drop-shadow(0 0 12px ${pnlColor}44)` }}>
+          <path d={V2_LOGO_PATH}/>
+        </g>
+      ) : null}
       <text ref={pnlNumRef}
-        x={L.numX.toFixed(1)} y={L.pnlBase}
+        x={isSolCur ? L.numX.toFixed(1) : TX.toFixed ? TX.toFixed(1) : TX}
+        y={L.pnlBase}
+        textAnchor={isSolCur ? 'start' : TA}
         fontFamily={fOrb} fontWeight="900" fontSize={L.fs}
         fill={pnlColor} letterSpacing="-1.5"
         style={{ filter:`drop-shadow(0 0 18px ${pnlColor}33)` }}>
@@ -5285,10 +5344,16 @@ function ShareCardInnerV2({ S, pnlCurve, closed, totalPnl, winRate, tf, walletLa
         fontFamily={fOrb} fontWeight="700" fontSize={S2}
         fill={pnlColor} opacity=".88">{retStr}</text>
 
-      {/* Nickname */}
-      <text x={TX} y={nickY} textAnchor={TA}
-        fontFamily={fOrb} fontSize={S3}
-        fill="rgba(255,255,255,0.52)">{walletLabel}</text>
+      {/* Nickname (or second field when rank name is in band) */}
+      {showRank ? (
+        <text x={TX} y={nickY} textAnchor={TA}
+          fontFamily={fOrb} fontSize={S3}
+          fill="rgba(255,255,255,0.52)">{walletLabel}</text>
+      ) : secondField ? (
+        <text x={TX} y={nickY} textAnchor={TA}
+          fontFamily={fOrb} fontSize={S3}
+          fill="rgba(255,255,255,0.42)">{secondField}</text>
+      ) : null}
 
       {/* STUB */}
       {showChart ? (
@@ -5303,31 +5368,31 @@ function ShareCardInnerV2({ S, pnlCurve, closed, totalPnl, winRate, tf, walletLa
           )}
           <text x={WG_X} y={WG_L1} fontFamily={fOrb} fontSize={S3}
             fill="rgba(255,255,255,0.52)">BOUGHT</text>
-          <g transform={`translate(${WG_X},${WG_N1-vlH3}) scale(${vlS3.toFixed(4)})`}
-            fill="rgba(255,255,255,0.40)"><path d={V2_LOGO_PATH}/></g>
-          <text x={WG_NX} y={WG_N1} fontFamily={fOrb} fontSize={S3}
-            fill="rgba(255,255,255,0.72)">{fmtC(totalSolIn, S, 1).replace(' SOL','')}</text>
+          {isSolCur && <g transform={`translate(${WG_X},${WG_N1-vlH3}) scale(${vlS3.toFixed(4)})`}
+            fill="rgba(255,255,255,0.40)"><path d={V2_LOGO_PATH}/></g>}
+          <text x={isSolCur ? WG_NX : WG_X} y={WG_N1} fontFamily={fOrb} fontSize={S3}
+            fill="rgba(255,255,255,0.72)">{volFmt(totalSolIn,1)}</text>
           <text x={WG_X} y={WG_L2} fontFamily={fOrb} fontSize={S3}
             fill={col} opacity=".55">SOLD</text>
-          <g transform={`translate(${WG_X},${WG_N2-vlH3}) scale(${vlS3.toFixed(4)})`}
-            fill={col} opacity=".68"><path d={V2_LOGO_PATH}/></g>
-          <text x={WG_NX} y={WG_N2} fontFamily={fOrb} fontSize={S3}
-            fill={col}>{fmtC(totalSolOut, S, 1).replace(' SOL','')}</text>
+          {isSolCur && <g transform={`translate(${WG_X},${WG_N2-vlH3}) scale(${vlS3.toFixed(4)})`}
+            fill={col} opacity=".68"><path d={V2_LOGO_PATH}/></g>}
+          <text x={isSolCur ? WG_NX : WG_X} y={WG_N2} fontFamily={fOrb} fontSize={S3}
+            fill={col}>{volFmt(totalSolOut,1)}</text>
         </>
       ) : (
         <>
           <text x={NG_LXA} y={NG_LBL_Y} fontFamily={fOrb} fontSize={S3}
             fill="rgba(255,255,255,0.52)">BOUGHT</text>
-          <g transform={`translate(${NG_LXA},${NG_LOGO_T}) scale(${vlS2.toFixed(4)})`}
-            fill="rgba(255,255,255,0.40)"><path d={V2_LOGO_PATH}/></g>
-          <text x={NG_NXA} y={NG_NUM_Y} fontFamily={fOrb} fontWeight="700" fontSize={S2}
-            fill="rgba(255,255,255,0.80)">{fmtC(totalSolIn, S, 2).replace(' SOL','')}</text>
+          {isSolCur && <g transform={`translate(${NG_LXA},${NG_LOGO_T}) scale(${vlS2.toFixed(4)})`}
+            fill="rgba(255,255,255,0.40)"><path d={V2_LOGO_PATH}/></g>}
+          <text x={isSolCur ? NG_NXA : NG_LXA} y={NG_NUM_Y} fontFamily={fOrb} fontWeight="700" fontSize={S2}
+            fill="rgba(255,255,255,0.80)">{volFmt(totalSolIn,2)}</text>
           <text x={NG_LXB} y={NG_LBL_Y} fontFamily={fOrb} fontSize={S3}
             fill={col} opacity=".60">SOLD</text>
-          <g transform={`translate(${NG_LXB},${NG_LOGO_T}) scale(${vlS2.toFixed(4)})`}
-            fill={col} opacity=".78"><path d={V2_LOGO_PATH}/></g>
-          <text x={NG_NXB} y={NG_NUM_Y} fontFamily={fOrb} fontWeight="700" fontSize={S2}
-            fill={col}>{fmtC(totalSolOut, S, 2).replace(' SOL','')}</text>
+          {isSolCur && <g transform={`translate(${NG_LXB},${NG_LOGO_T}) scale(${vlS2.toFixed(4)})`}
+            fill={col} opacity=".78"><path d={V2_LOGO_PATH}/></g>}
+          <text x={isSolCur ? NG_NXB : NG_LXB} y={NG_NUM_Y} fontFamily={fOrb} fontWeight="700" fontSize={S2}
+            fill={col}>{volFmt(totalSolOut,2)}</text>
         </>
       )}
 
@@ -5351,9 +5416,14 @@ function ShareModal({ S, setSetting, pnlCurve, closed, totalPnl, winRate, tf, wa
   const [cardPnlCompact, setCardPnlCompact] = useState(false);
   const [useV2Design, setUseV2Design] = useState(S.cardDesignV2 ?? false);
   // V2-only: text alignment (persisted in S) and background image (session-only, not persisted)
-  const [v2TextAlign, setV2TextAlign] = useState(S.cardV2TextAlign ?? 'center');
-  const [v2BgImage,   setV2BgImage]   = useState(null);
-  const [v2BgTx,      setV2BgTx]      = useState({ x:0, y:0, scale:1, rotate:0 });
+  const [v2TextAlign,    setV2TextAlign]    = useState(S.cardV2TextAlign ?? 'center');
+  const [v2BgImage,      setV2BgImage]      = useState(null);
+  const [v2BgTx,         setV2BgTx]         = useState({ x:0, y:0, scale:1, rotate:0 });
+  const [v2UseRankColor, setV2UseRankColor] = useState(true);  // true=rank color, false=custom
+  const [v2CustomColor,  setV2CustomColor]  = useState('#ffffff');
+  const [v2ShowRank,     setV2ShowRank]     = useState(true);   // show rank name in band
+  const [v2SecondField,  setV2SecondField]  = useState('');      // custom text below (when rank hidden)
+  const [v2ShowSecond,   setV2ShowSecond]   = useState(false);   // show second field at all
   // Build a merged rank with the user's session overrides applied
   const baseCard = { ...DEFAULT_CARD, ...(rank.card ?? {}) };
   const previewRank = { ...rank, card: {
@@ -5524,7 +5594,9 @@ function ShareModal({ S, setSetting, pnlCurve, closed, totalPnl, winRate, tf, wa
           <div ref={captureRef} style={{ display:'block', lineHeight:0 }}>
             {useV2Design
               ? <ShareCardInnerV2
-                  S={{ ...S, cardV2TextAlign: v2TextAlign, cardV2BgImage: v2BgImage, cardV2BgTransform: v2BgTx }}
+                  S={{ ...S, cardV2TextAlign: v2TextAlign, cardV2BgImage: v2BgImage, cardV2BgTransform: v2BgTx,
+                    cardV2UseRankColor: v2UseRankColor, cardV2CustomColor: v2CustomColor,
+                    cardV2ShowRank: v2ShowRank, cardV2SecondField: v2ShowRank ? null : (v2ShowSecond ? v2SecondField : null) }}
                   pnlCurve={pnlCurve} closed={closed}
                   totalPnl={totalPnl} winRate={winRate} tf={tf}
                   walletLabel={customLabel.trim() || walletLabel}
@@ -5623,7 +5695,7 @@ function ShareModal({ S, setSetting, pnlCurve, closed, totalPnl, winRate, tf, wa
               <label style={{ display:'flex', alignItems:'center', gap:6, cursor:'pointer' }}>
                 <input type="checkbox" checked={cardPnlCompact} onChange={e => setCardPnlCompact(e.target.checked)}
                   style={{ accentColor, cursor:'pointer', width:13, height:13 }}/>
-                <span style={{ ...mono, fontSize:8, color: cardPnlCompact ? accentColor : '#555' }}>1k</span>
+                <span style={{ ...mono, fontSize:8, color: cardPnlCompact ? accentColor : '#555' }}>1000→1k</span>
               </label>
             </div>
             {/* Text scale — V1 only */}
@@ -5668,6 +5740,87 @@ function ShareModal({ S, setSetting, pnlCurve, closed, totalPnl, winRate, tf, wa
                 </div>
               </div>
             </div>
+
+            {/* Accent color override */}
+            <div style={{ display:'flex', gap:12, alignItems:'center', flexWrap:'wrap' }}>
+              <div style={{ flexShrink:0 }}>
+                <div style={{ ...mono, fontSize:7, color:'#444', letterSpacing:'.12em', marginBottom:5 }}>ACCENT</div>
+                <div style={{ display:'flex', gap:4 }}>
+                  {[{id:true,label:'RANK'},{id:false,label:'CUSTOM'}].map(opt => {
+                    const active = v2UseRankColor === opt.id;
+                    return (
+                      <button key={String(opt.id)} onClick={() => setV2UseRankColor(opt.id)}
+                        style={{ ...mono, fontSize:8, padding:'5px 10px',
+                          background: active ? accentColor+'1a' : '#111',
+                          border:`1px solid ${active ? accentColor : '#222'}`,
+                          color: active ? accentColor : '#555',
+                          cursor:'pointer', letterSpacing:'.06em', transition:'all .12s' }}>
+                        {opt.label}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+              {!v2UseRankColor && (
+                <div style={{ display:'flex', alignItems:'center', gap:6 }}>
+                  <div style={{ position:'relative', width:22, height:22, flexShrink:0 }}>
+                    <div style={{ position:'absolute', inset:0, background:v2CustomColor,
+                      border:'1px solid #333', borderRadius:2 }}/>
+                    <input type="color" value={v2CustomColor} onChange={e => setV2CustomColor(e.target.value)}
+                      style={{ position:'absolute', inset:0, opacity:0, width:'100%', height:'100%', cursor:'pointer' }}/>
+                  </div>
+                  <input type="text" value={v2CustomColor}
+                    onChange={e => setV2CustomColor(e.target.value)}
+                    style={{ ...mono, background:'#111', border:'1px solid #222', color:'#ddd',
+                      fontSize:9, width:80, padding:'3px 6px' }}/>
+                </div>
+              )}
+            </div>
+
+            {/* Show rank title / username placement */}
+            <div style={{ display:'flex', gap:12, alignItems:'flex-start', flexWrap:'wrap' }}>
+              <div style={{ flexShrink:0 }}>
+                <div style={{ ...mono, fontSize:7, color:'#444', letterSpacing:'.12em', marginBottom:5 }}>RANK TITLE</div>
+                <div style={{ display:'flex', gap:4 }}>
+                  {[{id:true,label:'SHOW'},{id:false,label:'HIDE'}].map(opt => {
+                    const active = v2ShowRank === opt.id;
+                    return (
+                      <button key={String(opt.id)} onClick={() => setV2ShowRank(opt.id)}
+                        style={{ ...mono, fontSize:8, padding:'5px 10px',
+                          background: active ? accentColor+'1a' : '#111',
+                          border:`1px solid ${active ? accentColor : '#222'}`,
+                          color: active ? accentColor : '#555',
+                          cursor:'pointer', letterSpacing:'.06em', transition:'all .12s' }}>
+                        {opt.label}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+              {/* Second field — only when rank hidden, username takes band */}
+              {!v2ShowRank && (
+                <div style={{ flex:1, minWidth:180 }}>
+                  <div style={{ ...mono, fontSize:7, color:'#444', letterSpacing:'.12em', marginBottom:5 }}>
+                    SECOND FIELD (below username)
+                    <label style={{ marginLeft:8, cursor:'pointer', display:'inline-flex', alignItems:'center', gap:4 }}>
+                      <input type="checkbox" checked={v2ShowSecond}
+                        onChange={e => setV2ShowSecond(e.target.checked)}
+                        style={{ accentColor, cursor:'pointer' }}/>
+                      <span style={{ ...mono, fontSize:7, color: v2ShowSecond ? accentColor : '#444' }}>
+                        {v2ShowSecond ? 'ON' : 'OFF'}
+                      </span>
+                    </label>
+                  </div>
+                  {v2ShowSecond && (
+                    <input value={v2SecondField} onChange={e => setV2SecondField(e.target.value)}
+                      placeholder="referral link, quote, etc."
+                      maxLength={60}
+                      style={{ width:'100%', background:'#111', border:'1px solid #222', color:'#aaa',
+                        ...mono, fontSize:9, padding:'5px 8px', boxSizing:'border-box' }}/>
+                  )}
+                </div>
+              )}
+            </div>
           )}
 
           {/* Row 4 (V2 only): background image upload + transform */}
@@ -5687,6 +5840,8 @@ function ShareModal({ S, setSetting, pnlCurve, closed, totalPnl, winRate, tf, wa
                       reader.onload = ev => {
                         setV2BgImage(ev.target.result);
                         setV2BgTx({ x:0, y:0, scale:1, rotate:0 });
+                        // Auto-switch to custom color when image is set (but not locked)
+                        setV2UseRankColor(false);
                       };
                       reader.readAsDataURL(file);
                       e.target.value = '';
