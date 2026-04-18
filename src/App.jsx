@@ -5740,6 +5740,11 @@ function ShareModal({ S, setSetting, pnlCurve, closed, totalPnl, winRate, tf, wa
                 </div>
               </div>
             </div>
+          )}
+
+          {/* Row 4 (V2 only): accent color, rank title, second field */}
+          {useV2Design && (
+            <div style={{ display:'flex', flexDirection:'column', gap:10 }}>
 
             {/* Accent color override */}
             <div style={{ display:'flex', gap:12, alignItems:'center', flexWrap:'wrap' }}>
@@ -5821,9 +5826,11 @@ function ShareModal({ S, setSetting, pnlCurve, closed, totalPnl, winRate, tf, wa
                 </div>
               )}
             </div>
+
+            </div>
           )}
 
-          {/* Row 4 (V2 only): background image upload + transform */}
+          {/* Row 5 (V2 only): background image upload + transform */}
           {useV2Design && (
             <div style={{ display:'flex', flexDirection:'column', gap:8 }}>
               <div style={{ display:'flex', gap:8, alignItems:'center' }}>
