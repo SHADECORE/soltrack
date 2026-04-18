@@ -5914,6 +5914,11 @@ function ShareModal({ S, setSetting, pnlCurve, closed, totalPnl, winRate, tf, wa
           </div>
         </div>
         </div>{/* end main content */}
+      </div>
+    </div>
+  );
+}
+
 function ResetMyDataButton({ S, workerUrl, appSecret }) {
   const [phase, setPhase] = useState("idle"); // idle | confirm | wiping | done | error
   const [errMsg, setErrMsg] = useState("");
