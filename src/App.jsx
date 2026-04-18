@@ -3183,6 +3183,150 @@ const DEFAULT_CARD_V2 = {
   v2TextAlign:      'center', // 'center'|'left'|'right' — admin default
 };
 
+
+// ── AdminRanksV2: standalone component so hooks/component refs are stable ─────
+function AdminRanksV2({
+  ranks, selectedRankIdx, setSelectedRankIdx,
+  updateRank, addRank, removeRank, saveRanks,
+  S, adminPreviewCur, setAdminPreviewCur, ADMIN_PREVIEW_CURS,
+  green, border, dim, mono,
+}) {
+  const sortedRanks = [...ranks].sort((a,b) =>
+    (b.min===-Infinity)?-1:(a.min===-Infinity)?1:b.min-a.min);
+  const selIdx   = Math.min(selectedRankIdx, sortedRanks.length - 1);
+  const previewR = sortedRanks[selIdx] ?? sortedRanks[0];
+
+  if (!previewR) return (
+    <div style={{ ...mono, color:dim, fontSize:10 }}>
+      No ranks defined.
+      <button onClick={addRank} style={{ ...mono, marginLeft:12, background:'none',
+        border:`1px solid ${green}55`, color:green, cursor:'pointer', padding:'3px 10px', fontSize:9 }}>
+        + ADD FIRST RANK
+      </button>
+    </div>
+  );
+
+  const origIdx   = ranks.findIndex(x => x===previewR || (x.name===previewR.name && x.min===previewR.min));
+  const c         = { ...DEFAULT_CARD, ...(previewR.card ?? {}) };
+  const updateCard = (k, v) => updateRank(origIdx, 'card', { ...c, [k]: v });
+
+  // Slider / toggle / color helpers — call hoisted components with explicit props
+  const sl  = (label, k, min, max, step=1, unit='') =>
+    <V2AdminSlider key={k} label={label} val={c[k] ?? DEFAULT_CARD[k] ?? min}
+      min={min} max={max} step={step} unit={unit} onChange={v => updateCard(k, v)}/>;
+  const tog = (label, k) =>
+    <V2AdminToggle key={k} label={label} checked={!!(c[k] ?? DEFAULT_CARD[k])}
+      onChange={v => updateCard(k, v)}/>;
+  const col = (label, k) =>
+    <V2AdminColor key={k} label={label} value={c[k] ?? DEFAULT_CARD[k] ?? '#000000'}
+      onChange={v => updateCard(k, v)}/>;
+  const rcol = (label, field) =>
+    <V2AdminColor key={field} label={label} value={previewR[field] ?? '#000000'}
+      onChange={v => updateRank(origIdx, field, v)}/>;
+
+  return (
+    <div style={{ display:'flex', gap:0, alignItems:'flex-start', minHeight:600 }}>
+
+      {/* LEFT: rank picker + settings */}
+      <div style={{ width:380, flexShrink:0, borderRight:`1px solid ${border}`, paddingRight:20,
+        overflowY:'auto', maxHeight:'calc(100vh - 100px)' }}>
+
+        {/* Toolbar */}
+        <div style={{ display:'flex', alignItems:'center', gap:6, marginBottom:14 }}>
+          <div style={{ flex:1, position:'relative' }}>
+            <select value={selIdx} onChange={e => setSelectedRankIdx(+e.target.value)}
+              style={{ ...mono, background:'#111', border:`1px solid ${border}`, color:'#fff',
+                padding:'5px 28px 5px 10px', fontSize:10, width:'100%', cursor:'pointer',
+                appearance:'none', WebkitAppearance:'none' }}>
+              {sortedRanks.map((r,i) => (
+                <option key={i} value={i}>{r.name}{r.min===-Infinity?' (< 0)':`(≥ ${r.min})`}</option>
+              ))}
+            </select>
+            <div style={{ position:'absolute', right:8, top:'50%', transform:'translateY(-50%)',
+              color:dim, pointerEvents:'none', fontSize:9 }}>▾</div>
+          </div>
+          <button onClick={addRank}
+            style={{ ...mono, background:'none', border:`1px solid ${green}55`, color:green,
+              cursor:'pointer', padding:'5px 8px', fontSize:9, whiteSpace:'nowrap' }}>+ NEW</button>
+          <button onClick={() => removeRank(origIdx)}
+            style={{ ...mono, background:'none', border:'1px solid #ff003355', color:'#ff4444',
+              cursor:'pointer', padding:'5px 8px', fontSize:9 }}>× DEL</button>
+          <button onClick={saveRanks}
+            style={{ ...mono, background:green+'22', border:`1px solid ${green}`, color:green,
+              cursor:'pointer', padding:'5px 10px', fontSize:9, whiteSpace:'nowrap' }}>SAVE</button>
+        </div>
+
+        {/* IDENTITY */}
+        <V2AdminSec title="IDENTITY"/>
+        <V2AdminRow label="Name">
+          <input value={previewR.name} onClick={e => e.stopPropagation()}
+            onChange={e => updateRank(origIdx,'name',e.target.value.toUpperCase())}
+            style={{ ...mono, background:'#111', border:`1px solid ${border}`, color:'#fff',
+              padding:'3px 7px', fontSize:10, fontWeight:700, flex:1 }}/>
+        </V2AdminRow>
+        <V2AdminRow label="Min SOL threshold">
+          <input type="number" value={previewR.min===-Infinity?'':previewR.min}
+            placeholder="-∞ (REKT)" disabled={previewR.min===-Infinity}
+            onChange={e => updateRank(origIdx,'min',parseFloat(e.target.value)||0)}
+            style={{ ...mono, background:'#111', border:`1px solid ${border}`, color:dim,
+              padding:'3px 5px', fontSize:10, flex:1, opacity:previewR.min===-Infinity?0.4:1 }}/>
+        </V2AdminRow>
+        {rcol("Accent color",      "color")}
+        {rcol("Gradient top (G1)", "g1")}
+        {rcol("Gradient bottom (G2)", "g2")}
+
+        {/* ACCENT OVERRIDE */}
+        <V2AdminSec title="ACCENT OVERRIDE"/>
+        {tog("Use rank color", "useRankColor")}
+        {!(c.useRankColor ?? DEFAULT_CARD.useRankColor) && col("Custom color", "customColor")}
+
+        {/* GRADIENT */}
+        <V2AdminSec title="GRADIENT"/>
+        {sl("Angle (°)",     "gradientAngle", 0,   360, 5,    "°")}
+        {sl("G1 opacity",    "g1Opacity",     0,   1,   0.05     )}
+        {sl("G1 stop (%)",   "g1Stop",        0,   60,  1,    "%")}
+        {sl("Mid stop (%)",  "midStop",       10,  90,  1,    "%")}
+        {col("Mid color",    "midColor")}
+        {sl("End stop (%)",  "endStop",       50,  100, 1,    "%")}
+        {col("End color",    "endColor")}
+
+        {/* DISPLAY */}
+        <V2AdminSec title="DISPLAY"/>
+        {tog("Show PnL chart", "showChart")}
+
+        <div style={{ height:20 }}/>
+      </div>
+
+      {/* RIGHT: live preview */}
+      <div style={{ flex:1, display:'flex', flexDirection:'column', alignItems:'center',
+        paddingLeft:28, paddingTop:4, gap:14, position:'sticky', top:0 }}>
+        <div style={{ ...mono, fontSize:8, color:dim, letterSpacing:'.12em' }}>LIVE PREVIEW · NEW DESIGN</div>
+        <div style={{ transform:'scale(0.82)', transformOrigin:'top center', marginBottom:-80 }}>
+          <ShareCardInnerV2
+            S={{ ...S, currency: adminPreviewCur }}
+            pnlCurve={[]} closed={[]}
+            totalPnl={previewR.min === -Infinity ? -1.5 : (previewR.min ?? 0) + 0.5}
+            winRate="58.0" tf="ALL" walletLabel={previewR.name} _overrideRank={previewR}/>
+        </div>
+        <div style={{ ...mono, fontSize:8, color:dim, letterSpacing:'.08em', textAlign:'center', marginTop:4 }}>
+          · Changes saved with <span style={{ color:'#fff' }}>SAVE</span> button ·<br/>
+          · Border, divider, text sizes → Card V2 tab ·
+        </div>
+        <div style={{ marginTop:10, display:'flex', gap:4, flexWrap:'wrap', justifyContent:'center' }}>
+          {ADMIN_PREVIEW_CURS.map(cur => (
+            <button key={cur} onClick={() => setAdminPreviewCur(cur)}
+              style={{ ...mono, fontSize:8, padding:'3px 8px',
+                background: adminPreviewCur===cur ? green+'22' : 'none',
+                border:`1px solid ${adminPreviewCur===cur ? green : border}`,
+                color: adminPreviewCur===cur ? green : dim,
+                cursor:'pointer', letterSpacing:'.06em' }}>{cur}</button>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function AdminPanel({ S, setSetting }) {
   const [authed, setAuthed]   = useState(false);
   const [token, setToken]     = useState("");
@@ -3910,149 +4054,28 @@ function AdminPanel({ S, setSetting }) {
           );
         })()}
 
-        {/* ── RANKS V2 TAB ── */}
-        {adminTab === "ranks_v2" && (() => {
-          const sortedRanks = [...ranks].sort((a,b) =>
-            (b.min===-Infinity)?-1:(a.min===-Infinity)?1:b.min-a.min);
-          const selIdx   = Math.min(selectedRankIdx, sortedRanks.length - 1);
-          const previewR = sortedRanks[selIdx] ?? sortedRanks[0];
-          if (!previewR) return (
-            <div style={{ ...mono, color:dim, fontSize:10 }}>
-              No ranks defined.
-              <button onClick={addRank} style={{ ...mono, marginLeft:12, background:'none',
-                border:`1px solid ${green}55`, color:green, cursor:'pointer', padding:'3px 10px', fontSize:9 }}>
-                + ADD FIRST RANK
-              </button>
-            </div>
-          );
-          const origIdx  = ranks.findIndex(x => x===previewR || (x.name===previewR.name && x.min===previewR.min));
-          const c        = { ...DEFAULT_CARD, ...(previewR.card ?? {}) };
-          const updateCard = (k, v) => updateRank(origIdx, 'card', { ...c, [k]: v });
+                {/* ── RANKS V2 TAB ── */}
+        {adminTab === "ranks_v2" && (
+          <AdminRanksV2
+            ranks={ranks}
+            selectedRankIdx={selectedRankIdx}
+            setSelectedRankIdx={setSelectedRankIdx}
+            updateRank={updateRank}
+            addRank={addRank}
+            removeRank={removeRank}
+            saveRanks={saveRanks}
+            S={S}
+            adminPreviewCur={adminPreviewCur}
+            setAdminPreviewCur={setAdminPreviewCur}
+            ADMIN_PREVIEW_CURS={ADMIN_PREVIEW_CURS}
+            green={green}
+            border={border}
+            dim={dim}
+            mono={mono}
+          />
+        )}
 
-          // ── Use hoisted V2Admin* components (stable refs, no black screen) ──
-          // Thin wrappers passing c/updateCard/updateRank as closures to the props
-          const Sec  = ({title}) => <V2AdminSec title={title}/>;
-          const Sl   = ({label, k, min, max, step=1, unit=''}) =>
-            <V2AdminSlider label={label} min={min} max={max} step={step} unit={unit}
-              val={c[k] ?? DEFAULT_CARD[k] ?? min} onChange={v => updateCard(k, v)}/>;
-          const Tog  = ({label, k}) =>
-            <V2AdminToggle label={label} checked={!!(c[k] ?? DEFAULT_CARD[k])}
-              onChange={v => updateCard(k, v)}/>;
-          const Col  = ({label, k}) =>
-            <V2AdminColor label={label} value={c[k] ?? DEFAULT_CARD[k] ?? '#000000'}
-              onChange={v => updateCard(k, v)}/>;
-          const RCol = ({label, field}) =>
-            <V2AdminColor label={label} value={previewR[field] ?? '#000000'}
-              onChange={v => updateRank(origIdx, field, v)}/>;
-
-          return (
-            <div style={{ display:'flex', gap:0, alignItems:'flex-start', minHeight:600 }}>
-
-              {/* LEFT: rank picker + settings */}
-              <div style={{ width:380, flexShrink:0, borderRight:`1px solid ${border}`, paddingRight:20,
-                overflowY:'auto', maxHeight:'calc(100vh - 100px)' }}>
-
-                {/* Toolbar: selector + add/delete/save */}
-                <div style={{ display:'flex', alignItems:'center', gap:6, marginBottom:14 }}>
-                  <div style={{ flex:1, position:'relative' }}>
-                    <select value={selIdx} onChange={e => setSelectedRankIdx(+e.target.value)}
-                      style={{ ...mono, background:'#111', border:`1px solid ${border}`, color:'#fff',
-                        padding:'5px 28px 5px 10px', fontSize:10, width:'100%', cursor:'pointer',
-                        appearance:'none', WebkitAppearance:'none' }}>
-                      {sortedRanks.map((r,i) => (
-                        <option key={i} value={i}>{r.name}{r.min===-Infinity?' (< 0)':`(≥ ${r.min})`}</option>
-                      ))}
-                    </select>
-                    <div style={{ position:'absolute', right:8, top:'50%', transform:'translateY(-50%)',
-                      color:dim, pointerEvents:'none', fontSize:9 }}>▾</div>
-                  </div>
-                  <button onClick={addRank}
-                    style={{ ...mono, background:'none', border:`1px solid ${green}55`, color:green,
-                      cursor:'pointer', padding:'5px 8px', fontSize:9, whiteSpace:'nowrap' }}>+ NEW</button>
-                  <button onClick={() => removeRank(origIdx)}
-                    style={{ ...mono, background:'none', border:'1px solid #ff003355', color:'#ff4444',
-                      cursor:'pointer', padding:'5px 8px', fontSize:9 }}>× DEL</button>
-                  <button onClick={saveRanks}
-                    style={{ ...mono, background:green+'22', border:`1px solid ${green}`, color:green,
-                      cursor:'pointer', padding:'5px 10px', fontSize:9, whiteSpace:'nowrap' }}>SAVE</button>
-                </div>
-
-                {/* ── IDENTITY ── */}
-                <Sec title="IDENTITY"/>
-                <V2AdminRow label="Name">
-                  <input value={previewR.name} onClick={e => e.stopPropagation()}
-                    onChange={e => updateRank(origIdx,'name',e.target.value.toUpperCase())}
-                    style={{ ...mono, background:'#111', border:`1px solid ${border}`, color:'#fff',
-                      padding:'3px 7px', fontSize:10, fontWeight:700, flex:1 }}/>
-                </V2AdminRow>
-                <V2AdminRow label="Min SOL threshold">
-                  <input type="number" value={previewR.min===-Infinity?'':previewR.min}
-                    placeholder="-∞ (REKT)" disabled={previewR.min===-Infinity}
-                    onChange={e => updateRank(origIdx,'min',parseFloat(e.target.value)||0)}
-                    style={{ ...mono, background:'#111', border:`1px solid ${border}`, color:dim,
-                      padding:'3px 5px', fontSize:10, flex:1, opacity:previewR.min===-Infinity?0.4:1 }}/>
-                </V2AdminRow>
-                <RCol label="Accent color" field="color"/>
-                <RCol label="Gradient top (G1)" field="g1"/>
-                <RCol label="Gradient bottom (G2)" field="g2"/>
-
-                {/* ── ACCENT OVERRIDE ── */}
-                <Sec title="ACCENT OVERRIDE"/>
-                <Tog label="Use rank color" k="useRankColor"/>
-                {!(c.useRankColor ?? DEFAULT_CARD.useRankColor) && (
-                  <Col label="Custom color" k="customColor"/>
-                )}
-
-                {/* ── GRADIENT ── */}
-                <Sec title="GRADIENT"/>
-                <Sl label="Angle (°)"    k="gradientAngle"  min={0}   max={360} step={5}   unit="°"/>
-                <Sl label="G1 opacity"   k="g1Opacity"      min={0}   max={1}   step={0.05}/>
-                <Sl label="G1 stop (%)"  k="g1Stop"         min={0}   max={60}  step={1}   unit="%"/>
-                <Sl label="Mid stop (%)" k="midStop"        min={10}  max={90}  step={1}   unit="%"/>
-                <Col  label="Mid color"    k="midColor"/>
-                <Sl label="End stop (%)"      k="endStop"       min={50}  max={100} step={1}   unit="%"/>
-                <Col  label="End color"         k="endColor"/>
-                <Sl label="G1 stop opac."     k="g1Stop"        min={0}   max={100} step={1}   unit="%"/>
-                <Sl label="Gradient opacity"  k="g1Opacity"     min={0}   max={1}   step={0.02}/>
-
-                {/* ── DISPLAY ── */}
-                <Sec title="DISPLAY"/>
-                <Tog label="Show PnL chart" k="showChart"/>
-
-                <div style={{ height:20 }}/>
-              </div>
-
-              {/* RIGHT: V2 live preview */}
-              <div style={{ flex:1, display:'flex', flexDirection:'column', alignItems:'center',
-                paddingLeft:28, paddingTop:4, gap:14, position:'sticky', top:0 }}>
-                <div style={{ ...mono, fontSize:8, color:dim, letterSpacing:'.12em' }}>LIVE PREVIEW · NEW DESIGN</div>
-                <div style={{ transform:'scale(0.82)', transformOrigin:'top center', marginBottom:-80 }}>
-                  <ShareCardInnerV2
-                    S={{ ...S, currency: adminPreviewCur }}
-                    pnlCurve={[]} closed={[]}
-                    totalPnl={previewR.min === -Infinity ? -1.5 : (previewR.min ?? 0) + 0.5}
-                    winRate="58.0" tf="ALL" walletLabel={previewR.name} _overrideRank={previewR}/>
-                </div>
-                <div style={{ ...mono, fontSize:8, color:dim, letterSpacing:'.08em', textAlign:'center', marginTop:4 }}>
-                  · Changes saved with <span style={{ color:'#fff' }}>SAVE</span> button ·<br/>
-                  · Border, divider, text sizes → Card V2 tab ·
-                </div>
-                <div style={{ marginTop:10, display:'flex', gap:4, flexWrap:'wrap', justifyContent:'center' }}>
-                  {ADMIN_PREVIEW_CURS.map(c => (
-                    <button key={c} onClick={() => setAdminPreviewCur(c)}
-                      style={{ ...mono, fontSize:8, padding:'3px 8px',
-                        background: adminPreviewCur===c ? green+'22' : 'none',
-                        border:`1px solid ${adminPreviewCur===c ? green : border}`,
-                        color: adminPreviewCur===c ? green : dim,
-                        cursor:'pointer', letterSpacing:'.06em' }}>{c}</button>
-                  ))}
-                </div>
-              </div>
-            </div>
-          );
-        })()}
-
-        {/* ── CARD V2 TAB ── */}
+{/* ── CARD V2 TAB ── */}
         {adminTab === "card_v2" && (() => {
           const dc    = S.defaultCardV2 ?? {};
           // setDC merges a single key into S.defaultCardV2
